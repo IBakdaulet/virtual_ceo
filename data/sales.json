@@ -1,0 +1,137 @@
+{
+  "projects": {
+    "grants_kz": {
+      "name": "Grants KZ",
+      "monthly_plan": 1500000
+    },
+    "tanda_bilim": {
+      "name": "Tanda Bilim",
+      "monthly_plan": 1500000
+    },
+    "ekonomist_media": {
+      "name": "Ekonomist Media",
+      "monthly_plan": 500000
+    }
+  },
+  "entries": [
+    {
+      "project": "grants_kz",
+      "revenue": 0.0,
+      "paid_clients": [],
+      "calls_made": 80,
+      "deals_closed": 0,
+      "pipeline_total": 700000.0,
+      "active_negotiations": [
+        {
+          "client": "GeOnline",
+          "amount": 160000
+        }
+      ],
+      "date": "2026-04-27"
+    },
+    {
+      "project": "tanda_bilim",
+      "revenue": 0.0,
+      "paid_clients": [
+        {
+          "client": "Allur",
+          "amount": 1500000
+        },
+        {
+          "client": "Askar cinema",
+          "amount": 200000
+        }
+      ],
+      "calls_made": 2,
+      "deals_closed": 0,
+      "pipeline_total": 1000000.0,
+      "active_negotiations": [
+        {
+          "client": "LG",
+          "amount": 500000
+        },
+        {
+          "client": "Samsung",
+          "amount": 500000
+        }
+      ],
+      "date": "2026-04-27"
+    },
+    {
+      "project": "ekonomist_media",
+      "revenue": 0.0,
+      "paid_clients": [],
+      "calls_made": 0,
+      "deals_closed": 0,
+      "pipeline_total": 0.0,
+      "active_negotiations": [],
+      "date": "2026-04-27"
+    }
+  ],
+  "monthly_plans": {
+    "2026-01": {
+      "grants_kz": 645000,
+      "tanda_bilim": 150000,
+      "ekonomist_media": 50000
+    },
+    "2026-02": {
+      "grants_kz": 1420000,
+      "tanda_bilim": 280000,
+      "ekonomist_media": 100000
+    },
+    "2026-03": {
+      "grants_kz": 1170000,
+      "tanda_bilim": 420000,
+      "ekonomist_media": 180000
+    },
+    "2026-04": {
+      "grants_kz": 3031000,
+      "tanda_bilim": 650000,
+      "ekonomist_media": 250000
+    },
+    "2026-05": {
+      "grants_kz": 2130000,
+      "tanda_bilim": 780000,
+      "ekonomist_media": 300000
+    },
+    "2026-06": {
+      "grants_kz": 3815000,
+      "tanda_bilim": 850000,
+      "ekonomist_media": 220000
+    },
+    "2026-07": {
+      "grants_kz": 3470000,
+      "tanda_bilim": 350000,
+      "ekonomist_media": 150000
+    },
+    "2026-08": {
+      "grants_kz": 2035000,
+      "tanda_bilim": 400000,
+      "ekonomist_media": 180000
+    },
+    "2026-09": {
+      "grants_kz": 2620000,
+      "tanda_bilim": 950000,
+      "ekonomist_media": 350000
+    },
+    "2026-10": {
+      "grants_kz": 3390000,
+      "tanda_bilim": 1100000,
+      "ekonomist_media": 450000
+    },
+    "2026-11": {
+      "grants_kz": 2450000,
+      "tanda_bilim": 1050000,
+      "ekonomist_media": 520000
+    },
+    "2026-12": {
+      "grants_kz": 2145000,
+      "tanda_bilim": 720000,
+      "ekonomist_media": 400000
+    }
+  },
+  "daily_state": {
+    "submitted_today": false,
+    "submitted_date": null
+  }
+}

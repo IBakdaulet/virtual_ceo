@@ -1,0 +1,98 @@
+{
+  "accounts": {
+    "kaspi_card": {
+      "name": "Kaspi карта",
+      "currency": "KZT",
+      "balance": 11500.0,
+      "type": "card"
+    },
+    "kaspi_deposit_usd": {
+      "name": "Kaspi депозит USD",
+      "currency": "USD",
+      "balance": 66684,
+      "type": "deposit",
+      "rate_pct": 1,
+      "duration": "12 мес",
+      "last_renewal": "2027-03-06",
+      "next_renewal": "2027-03-08"
+    },
+    "kaspi_deposit_grants": {
+      "name": "Kaspi депозит Grants KZ",
+      "currency": "KZT",
+      "balance": 1500,
+      "type": "deposit",
+      "note": "Рекламные деньги Grants KZ"
+    },
+    "halyk_card": {
+      "name": "Halyk карта",
+      "currency": "KZT",
+      "balance": 39700.0,
+      "type": "card"
+    },
+    "halyk_deposit_usd": {
+      "name": "Halyk депозит USD",
+      "currency": "USD",
+      "balance": 27000,
+      "type": "deposit"
+    },
+    "halyk_deposit_kzt": {
+      "name": "Halyk депозит KZT",
+      "currency": "KZT",
+      "balance": 23606000.0,
+      "type": "deposit"
+    },
+    "freedom_invest": {
+      "name": "Freedom Invest карта",
+      "currency": "USD",
+      "balance": 348,
+      "type": "investment"
+    },
+    "freedom_card": {
+      "name": "Freedom карта",
+      "currency": "KZT",
+      "balance": 12600,
+      "type": "card"
+    }
+  },
+  "goals": [],
+  "transactions": [],
+  "business": {
+    "kettik_group": {
+      "name": "Kettik Group",
+      "monthly_revenue": 75000000,
+      "my_share_pct": 35,
+      "currency": "KZT"
+    },
+    "tanda_bilim": {
+      "name": "Tanda Bilim",
+      "monthly_revenue": 1500000,
+      "my_share_pct": 30,
+      "currency": "KZT"
+    },
+    "grants_kz": {
+      "name": "Grants KZ",
+      "monthly_revenue": 1500000,
+      "my_share_pct": 100,
+      "currency": "KZT"
+    },
+    "ekonomist": {
+      "name": "Ekonomist Media",
+      "monthly_revenue": 0,
+      "my_share_pct": 100,
+      "currency": "KZT"
+    }
+  },
+  "usd_to_kzt_rate": 464.32,
+  "last_updated": "2026-04-28T23:56:51.438300",
+  "limits": {
+    "daily": {},
+    "weekly": {},
+    "monthly": {}
+  },
+  "spending_current": {
+    "daily": {},
+    "weekly": {},
+    "monthly": {},
+    "period_start": null
+  }
+}
