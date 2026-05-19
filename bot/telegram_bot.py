@@ -493,11 +493,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Отменено.")
             return
         year = ad["year"]
-        from agents.sales_agent import save_historical_data, get_historical_raw
-        save_historical_data(year, user_text)
-        _save_adddata({"active": False, "year": None})
-        updated = get_historical_raw(year)
-        await update.message.reply_text(f"✅ Данные за {year} год обновлены.\n\n{updated}")
+        try:
+            from agents.sales_agent import save_historical_data, get_historical_raw
+            save_historical_data(year, user_text)
+            _save_adddata({"active": False, "year": None})
+            updated = get_historical_raw(year)
+            await update.message.reply_text(f"✅ Данные за {year} год обновлены.\n\n{updated}")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка при сохранении: {e}")
         return
 
     # Запрос исторических продаж — ВСЕГДА в приоритете (даже если yearplan активен)
