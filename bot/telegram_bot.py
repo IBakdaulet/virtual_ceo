@@ -457,8 +457,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     hist_match = _re.search(r"20\d{2}", user_text)
     if hist_match and any(w in user_text.lower() for w in ["продаж", "выручк", "отчет", "данные", "план", "статистик", "итог"]):
         year = int(hist_match.group())
-        from agents.sales_agent import query_historical_year
-        result = query_historical_year(year)
+        from agents.sales_agent import get_historical_raw
+        result = get_historical_raw(year)
         await send_long(update, result)
         return
 

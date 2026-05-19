@@ -569,6 +569,24 @@ def save_historical_data(year: int, raw_text: str):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def get_historical_raw(year: int) -> str:
+    """Возвращает сырые данные за год без анализа."""
+    with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    year_data = data["years"].get(str(year))
+    if not year_data:
+        all_blocks = []
+        for blocks in data["years"].values():
+            all_blocks.extend(blocks)
+        year_data = [b for b in all_blocks if str(year) in b]
+
+    if not year_data:
+        return f"Данных за {year} год нет. Загрузи их через /yearplan."
+
+    return "\n\n".join(year_data)
+
+
 def query_historical_year(year: int) -> str:
     """Возвращает анализ исторических данных за год через Claude."""
     with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
