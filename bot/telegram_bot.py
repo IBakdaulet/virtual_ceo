@@ -412,6 +412,39 @@ async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await request_balances(context)
 
 
+ADDDATA_FILE = Path(__file__).parent.parent / "data" / "adddata_state.json"
+
+def _load_adddata() -> dict:
+    if ADDDATA_FILE.exists():
+        with open(ADDDATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"active": False, "year": None}
+
+def _save_adddata(state: dict):
+    with open(ADDDATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+async def cmd_adddata(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Добавляет новые данные к историческим продажам за указанный год."""
+    if not is_owner(update):
+        return
+    args = context.args
+    if args and args[0].isdigit() and len(args[0]) == 4:
+        year = int(args[0])
+        _save_adddata({"active": True, "year": year})
+        await update.message.reply_text(
+            f"📥 Добавляем данные за {year} год.\n\n"
+            f"Отправь текст с новыми данными, например:\n"
+            f"Январь 1.200.000\nФевраль 1.500.000\n\n"
+            f"Напиши 'отмена' чтобы выйти."
+        )
+    else:
+        await update.message.reply_text(
+            "Укажи год: /adddata 2025"
+        )
+
+
 async def cmd_yearplan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Запускает режим составления годового плана продаж."""
     if not is_owner(update):
@@ -451,6 +484,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
+
+    # Режим добавления данных
+    ad = _load_adddata()
+    if ad["active"]:
+        if user_text.lower() in ["отмена", "стоп", "cancel"]:
+            _save_adddata({"active": False, "year": None})
+            await update.message.reply_text("Отменено.")
+            return
+        year = ad["year"]
+        from agents.sales_agent import save_historical_data, get_historical_raw
+        save_historical_data(year, user_text)
+        _save_adddata({"active": False, "year": None})
+        updated = get_historical_raw(year)
+        await update.message.reply_text(f"✅ Данные за {year} год обновлены.\n\n{updated}")
+        return
 
     # Запрос исторических продаж — ВСЕГДА в приоритете (даже если yearplan активен)
     import re as _re
@@ -842,6 +890,7 @@ def main() -> None:
     app.add_handler(CommandHandler("balances", cmd_balances))
     app.add_handler(CommandHandler("sales", cmd_sales))
     app.add_handler(CommandHandler("yearplan", cmd_yearplan))
+    app.add_handler(CommandHandler("adddata", cmd_adddata))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
