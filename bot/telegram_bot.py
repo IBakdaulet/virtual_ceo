@@ -21,6 +21,7 @@ from telegram.ext import (
 
 load_dotenv()
 
+Path("logs").mkdir(exist_ok=True)
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
