@@ -454,15 +454,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Запрос исторических продаж — ВСЕГДА в приоритете (даже если yearplan активен)
     import re as _re
-    hist_match = _re.search(r"(продаж|выручк|отчет|данные).*(20\d{2})|(20\d{2}).*(продаж|выручк|отчет|данные)", user_text.lower())
-    if hist_match:
-        year_m = _re.search(r"20\d{2}", user_text)
-        if year_m:
-            year = int(year_m.group())
-            from agents.sales_agent import query_historical_year
-            result = query_historical_year(year)
-            await send_long(update, result)
-            return
+    hist_match = _re.search(r"20\d{2}", user_text)
+    if hist_match and any(w in user_text.lower() for w in ["продаж", "выручк", "отчет", "данные", "план", "статистик", "итог"]):
+        year = int(hist_match.group())
+        from agents.sales_agent import query_historical_year
+        result = query_historical_year(year)
+        await send_long(update, result)
+        return
 
     # Режим годового планирования
     yp = _load_yearplan()
