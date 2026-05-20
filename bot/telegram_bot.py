@@ -549,6 +549,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if any(w in user_text.lower() for w in edit_words):
         from agents.sales_agent import parse_historical_edit_command, save_historical_month, get_historical_raw, push_historical_to_github, MONTH_NAMES
         parsed = parse_historical_edit_command(user_text)
+        if not parsed or not parsed.get("year") or not parsed.get("month"):
+            await update.message.reply_text(
+                "Не понял команду. Напиши так:\n"
+                "поменяй апрель 2026 grants kz 3.5М\n"
+                "добавь май 2026: гранты 1.5М, танда 800к"
+            )
+            return
         if parsed and parsed.get("year") and parsed.get("month"):
             year = parsed["year"]
             month = parsed["month"]
