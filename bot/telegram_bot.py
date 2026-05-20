@@ -537,6 +537,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     ad["temp"].get("tanda_bilim", 0),
                     ad["temp"].get("ekonomist_media", 0),
                 )
+                from agents.sales_agent import push_historical_to_github
+                push_historical_to_github()
                 _reset_adddata()
                 updated = get_historical_raw(year)
                 await update.message.reply_text(f"✅ Сохранено!\n\n{updated}")
@@ -544,41 +546,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text(f"❌ Ошибка: {e}")
             return
 
-    # Команды редактирования исторических данных
-    import re as _re2
-    has_year = bool(_re2.search(r"202[5-9]", user_text))
-    has_amount = bool(_re2.search(r"\d+[\s.]*(м|к|млн|тыс|000|миллион)", user_text.lower()))
-    edit_words = ["поменяй", "измени", "обнови", "добавь", "скорректируй", "замени", "поправь", "установи", "запиши", "зафиксируй"]
-    is_edit = any(w in user_text.lower() for w in edit_words) and has_year
-    if not is_edit and has_year and has_amount:
-        # Попробуем распарсить как команду редактирования даже без ключевых слов
-        is_edit = True
-    if is_edit:
-        from agents.sales_agent import parse_historical_edit_command, save_historical_month, get_historical_raw, push_historical_to_github, MONTH_NAMES
-        parsed = parse_historical_edit_command(user_text)
-        if not parsed or not parsed.get("year") or not parsed.get("month"):
-            await update.message.reply_text(
-                "Не понял команду. Напиши так:\n"
-                "поменяй апрель 2026 grants kz 3.5М\n"
-                "добавь май 2026: гранты 1.5М, танда 800к"
-            )
-            return
-        if parsed and parsed.get("year") and parsed.get("month"):
-            year = parsed["year"]
-            month = parsed["month"]
-            with open(Path(__file__).parent.parent / "data" / "historical_sales.json", "r", encoding="utf-8") as f:
-                import json as _json
-                hist = _json.load(f)
-            existing = hist.get("years", {}).get(str(year), {}).get("months", {}).get(month, {})
-            gkz = parsed["grants_kz"] if parsed.get("grants_kz") is not None else existing.get("grants_kz", 0)
-            tb = parsed["tanda_bilim"] if parsed.get("tanda_bilim") is not None else existing.get("tanda_bilim", 0)
-            em = parsed["ekonomist_media"] if parsed.get("ekonomist_media") is not None else existing.get("ekonomist_media", 0)
-            save_historical_month(year, month, gkz, tb, em)
-            push_historical_to_github()
-            month_name = MONTH_NAMES.get(month, month)
-            result = get_historical_raw(year)
-            await update.message.reply_text(f"✅ {month_name} {year} обновлён.\n\n{result}")
-            return
 
     # Запрос исторических продаж
     import re as _re
