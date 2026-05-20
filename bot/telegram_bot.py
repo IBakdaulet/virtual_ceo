@@ -39,6 +39,7 @@ STATE_FILE = Path(__file__).parent.parent / "data" / "daily_state.json"
 
 conversation_history: list = []
 statement_analyses: list = []
+adddata_state: dict = {"active": False, "year": None}  # in-memory, не файл
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 
 def _load_yearplan() -> dict:
@@ -412,17 +413,12 @@ async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await request_balances(context)
 
 
-ADDDATA_FILE = Path(__file__).parent.parent / "data" / "adddata_state.json"
-
 def _load_adddata() -> dict:
-    if ADDDATA_FILE.exists():
-        with open(ADDDATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"active": False, "year": None}
+    return adddata_state
 
 def _save_adddata(state: dict):
-    with open(ADDDATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    global adddata_state
+    adddata_state.update(state)
 
 
 async def cmd_adddata(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
