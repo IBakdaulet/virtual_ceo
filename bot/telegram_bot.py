@@ -39,7 +39,10 @@ STATE_FILE = Path(__file__).parent.parent / "data" / "daily_state.json"
 
 conversation_history: list = []
 statement_analyses: list = []
-adddata_state: dict = {"active": False, "year": None}  # in-memory, не файл
+adddata_state: dict = {
+    "active": False, "year": None, "month": None,
+    "step": None, "temp": {}
+}  # in-memory
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 
 def _load_yearplan() -> dict:
@@ -416,29 +419,34 @@ async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def _load_adddata() -> dict:
     return adddata_state
 
-def _save_adddata(state: dict):
+def _save_adddata(updates: dict):
     global adddata_state
-    adddata_state.update(state)
+    adddata_state.update(updates)
+
+def _reset_adddata():
+    global adddata_state
+    adddata_state.update({"active": False, "year": None, "month": None, "step": None, "temp": {}})
 
 
 async def cmd_adddata(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Добавляет новые данные к историческим продажам за указанный год."""
+    """Пошаговое добавление/корректировка исторических продаж."""
     if not is_owner(update):
         return
     args = context.args
     if args and args[0].isdigit() and len(args[0]) == 4:
         year = int(args[0])
-        _save_adddata({"active": True, "year": year})
+        _save_adddata({"active": True, "year": year, "month": None, "step": "ask_month", "temp": {}})
+        from agents.sales_agent import get_historical_raw
+        current = get_historical_raw(year)
         await update.message.reply_text(
-            f"📥 Добавляем данные за {year} год.\n\n"
-            f"Отправь текст с новыми данными, например:\n"
-            f"Январь 1.200.000\nФевраль 1.500.000\n\n"
-            f"Напиши 'отмена' чтобы выйти."
+            f"{current}\n\n"
+            f"─────────────────\n"
+            f"Какой месяц добавляем или корректируем?\n"
+            f"Напиши название: Май, Июнь, Январь...\n"
+            f"Или 'отмена' чтобы выйти."
         )
     else:
-        await update.message.reply_text(
-            "Укажи год: /adddata 2025"
-        )
+        await update.message.reply_text("Укажи год: /adddata 2025 или /adddata 2026")
 
 
 async def cmd_yearplan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -485,19 +493,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ad = _load_adddata()
     if ad["active"]:
         if user_text.lower() in ["отмена", "стоп", "cancel"]:
-            _save_adddata({"active": False, "year": None})
+            _reset_adddata()
             await update.message.reply_text("Отменено.")
             return
+
+        from agents.sales_agent import parse_month, save_historical_month, get_historical_raw, _parse_amount
+
+        step = ad["step"]
         year = ad["year"]
-        try:
-            from agents.sales_agent import save_historical_data, get_historical_raw
-            save_historical_data(year, user_text)
-            _save_adddata({"active": False, "year": None})
-            updated = get_historical_raw(year)
-            await update.message.reply_text(f"✅ Данные за {year} год обновлены.\n\n{updated}")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка при сохранении: {e}")
-        return
+
+        if step == "ask_month":
+            month = parse_month(user_text)
+            if not month:
+                await update.message.reply_text("Не понял месяц. Напиши например: Май, Июнь, Январь")
+                return
+            _save_adddata({"month": month, "step": "grants_kz", "temp": {}})
+            from agents.sales_agent import MONTH_NAMES
+            await update.message.reply_text(
+                f"📅 {MONTH_NAMES.get(month, month)} {year}\n\n"
+                f"Grants KZ — выручка?\n"
+                f"Пример: 1.5М или 800к или 0"
+            )
+            return
+
+        elif step == "grants_kz":
+            ad["temp"]["grants_kz"] = _parse_amount(user_text)
+            _save_adddata({"step": "tanda_bilim", "temp": ad["temp"]})
+            await update.message.reply_text("Tanda Bilim — выручка?\nПример: 1.2М или 0")
+            return
+
+        elif step == "tanda_bilim":
+            ad["temp"]["tanda_bilim"] = _parse_amount(user_text)
+            _save_adddata({"step": "ekonomist_media", "temp": ad["temp"]})
+            await update.message.reply_text("Ekonomist Media — выручка?\nПример: 300к или 0")
+            return
+
+        elif step == "ekonomist_media":
+            ad["temp"]["ekonomist_media"] = _parse_amount(user_text)
+            try:
+                save_historical_month(
+                    year, ad["month"],
+                    ad["temp"].get("grants_kz", 0),
+                    ad["temp"].get("tanda_bilim", 0),
+                    ad["temp"].get("ekonomist_media", 0),
+                )
+                _reset_adddata()
+                updated = get_historical_raw(year)
+                await update.message.reply_text(f"✅ Сохранено!\n\n{updated}")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Ошибка: {e}")
+            return
 
     # Запрос исторических продаж — ВСЕГДА в приоритете (даже если yearplan активен)
     import re as _re

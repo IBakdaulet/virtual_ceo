@@ -569,22 +569,99 @@ def save_historical_data(year: int, raw_text: str):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+MONTH_NAMES = {
+    "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель",
+    "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август",
+    "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь"
+}
+
+MONTHS_RU = {
+    "январь": "01", "января": "01", "янв": "01",
+    "февраль": "02", "февраля": "02", "фев": "02",
+    "март": "03", "марта": "03", "мар": "03",
+    "апрель": "04", "апреля": "04", "апр": "04",
+    "май": "05", "мая": "05",
+    "июнь": "06", "июня": "06", "июн": "06",
+    "июль": "07", "июля": "07", "июл": "07",
+    "август": "08", "августа": "08", "авг": "08",
+    "сентябрь": "09", "сентября": "09", "сен": "09",
+    "октябрь": "10", "октября": "10", "окт": "10",
+    "ноябрь": "11", "ноября": "11", "ноя": "11",
+    "декабрь": "12", "декабря": "12", "дек": "12",
+}
+
+
+def parse_month(text: str) -> Optional[str]:
+    """Парсит название месяца → номер '01'-'12'."""
+    t = text.strip().lower()
+    if t in MONTHS_RU:
+        return MONTHS_RU[t]
+    for key in MONTHS_RU:
+        if t.startswith(key[:3]):
+            return MONTHS_RU[key]
+    if re.match(r"^\d{1,2}$", t):
+        num = int(t)
+        if 1 <= num <= 12:
+            return f"{num:02d}"
+    return None
+
+
 def get_historical_raw(year: int) -> str:
-    """Возвращает сырые данные за год без анализа."""
+    """Возвращает данные за год в читаемом виде."""
     with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    year_data = data["years"].get(str(year))
-    if not year_data:
-        all_blocks = []
-        for blocks in data["years"].values():
-            all_blocks.extend(blocks)
-        year_data = [b for b in all_blocks if str(year) in b]
+    year_entry = data["years"].get(str(year))
+    if not year_entry or not year_entry.get("months"):
+        return f"Данных за {year} год нет. Добавь через /adddata {year}."
 
-    if not year_data:
-        return f"Данных за {year} год нет. Загрузи их через /yearplan."
+    months = year_entry["months"]
+    lines = [f"📊 ПРОДАЖИ {year} ГОДА", "─" * 30]
+    totals = {"grants_kz": 0, "tanda_bilim": 0, "ekonomist_media": 0}
 
-    return "\n\n".join(year_data)
+    for month_num in sorted(months.keys()):
+        m = months[month_num]
+        name = MONTH_NAMES.get(month_num, month_num)
+        gkz = m.get("grants_kz", 0)
+        tb = m.get("tanda_bilim", 0)
+        em = m.get("ekonomist_media", 0)
+        total = gkz + tb + em
+        totals["grants_kz"] += gkz
+        totals["tanda_bilim"] += tb
+        totals["ekonomist_media"] += em
+
+        parts = []
+        if gkz: parts.append(f"Grants KZ: {gkz:,.0f}")
+        if tb: parts.append(f"Tanda Bilim: {tb:,.0f}")
+        if em: parts.append(f"Ekonomist: {em:,.0f}")
+        detail = " | ".join(parts) if parts else "нет данных"
+        lines.append(f"{name}: {total:,.0f} ₸  ({detail})")
+
+    lines.append("─" * 30)
+    grand = sum(totals.values())
+    lines.append(f"Итого {year}: {grand:,.0f} ₸")
+    if totals["grants_kz"]: lines.append(f"  Grants KZ: {totals['grants_kz']:,.0f} ₸")
+    if totals["tanda_bilim"]: lines.append(f"  Tanda Bilim: {totals['tanda_bilim']:,.0f} ₸")
+    if totals["ekonomist_media"]: lines.append(f"  Ekonomist: {totals['ekonomist_media']:,.0f} ₸")
+    return "\n".join(lines)
+
+
+def save_historical_month(year: int, month: str, grants_kz: float, tanda_bilim: float, ekonomist_media: float):
+    """Сохраняет/обновляет данные за конкретный месяц."""
+    with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    yr = str(year)
+    if yr not in data["years"]:
+        data["years"][yr] = {"months": {}}
+    if "months" not in data["years"][yr]:
+        data["years"][yr]["months"] = {}
+    data["years"][yr]["months"][month] = {
+        "grants_kz": grants_kz,
+        "tanda_bilim": tanda_bilim,
+        "ekonomist_media": ekonomist_media,
+    }
+    with open(HISTORICAL_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def query_historical_year(year: int) -> str:
