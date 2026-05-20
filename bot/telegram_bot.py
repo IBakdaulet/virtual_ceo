@@ -545,8 +545,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
     # Команды редактирования исторических данных
-    edit_words = ["поменяй", "измени", "обнови", "добавь", "скорректируй", "замени", "поправь"]
-    if any(w in user_text.lower() for w in edit_words):
+    import re as _re2
+    has_year = bool(_re2.search(r"202[5-9]", user_text))
+    has_amount = bool(_re2.search(r"\d+[\s.]*(м|к|млн|тыс|000|миллион)", user_text.lower()))
+    edit_words = ["поменяй", "измени", "обнови", "добавь", "скорректируй", "замени", "поправь", "установи", "запиши", "зафиксируй"]
+    is_edit = any(w in user_text.lower() for w in edit_words) and has_year
+    if not is_edit and has_year and has_amount:
+        # Попробуем распарсить как команду редактирования даже без ключевых слов
+        is_edit = True
+    if is_edit:
         from agents.sales_agent import parse_historical_edit_command, save_historical_month, get_historical_raw, push_historical_to_github, MONTH_NAMES
         parsed = parse_historical_edit_command(user_text)
         if not parsed or not parsed.get("year") or not parsed.get("month"):
