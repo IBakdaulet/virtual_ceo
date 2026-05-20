@@ -821,6 +821,83 @@ def save_annual_plan_as_targets(plan_text: str, target_year: int) -> str:
         return f"Ошибка сохранения плана: {e}"
 
 
+def push_historical_to_github() -> bool:
+    """Пушит historical_sales.json в GitHub через API чтобы данные не терялись при редеплое."""
+    import base64
+    import httpx
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return False
+    url = "https://api.github.com/repos/IBakdaulet/virtual_ceo/contents/data/historical_sales.json"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    try:
+        resp = httpx.get(url, headers=headers, timeout=10)
+        sha = resp.json().get("sha", "")
+        with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
+            content = f.read()
+        encoded = base64.b64encode(content.encode()).decode()
+        httpx.put(url, headers=headers, json={
+            "message": "update: historical sales data via bot",
+            "content": encoded,
+            "sha": sha,
+        }, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
+def get_historical_two_years() -> str:
+    """Возвращает данные за последние два года."""
+    with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    years = sorted(data["years"].keys(), reverse=True)[:2]
+    parts = [get_historical_raw(int(y)) for y in reversed(years)]
+    return "\n\n".join(parts)
+
+
+def parse_historical_edit_command(text: str) -> Optional[dict]:
+    """Claude парсит команду редактирования исторических данных.
+    Возвращает dict с year, month, grants_kz, tanda_bilim, ekonomist_media или None.
+    """
+    prompt = f"""Из этого сообщения извлеки команду изменения данных продаж.
+
+Сообщение: "{text}"
+
+Если это команда изменить/добавить/поменять/обновить данные продаж за конкретный месяц и год — верни JSON:
+{{
+  "year": 2026,
+  "month": "04",
+  "grants_kz": 3500000,
+  "tanda_bilim": null,
+  "ekonomist_media": null
+}}
+
+Правила:
+- month: двузначный номер ("01"-"12")
+- Если проект не упомянут — null (не трогать)
+- Если явно написано 0 — 0
+- "3.5М" = 3500000, "800к" = 800000
+- Если это НЕ команда редактирования продаж — верни null
+
+Только JSON или null, без текста."""
+
+    resp = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=256,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    raw = resp.content[0].text.strip()
+    if raw.lower() == "null":
+        return None
+    m = re.search(r'\{.*\}', raw, re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group())
+    except Exception:
+        return None
+
+
 class SalesAgent:
     def run(self, task: str) -> str:
         task_lower = task.lower().strip()

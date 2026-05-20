@@ -544,10 +544,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text(f"❌ Ошибка: {e}")
             return
 
-    # Запрос исторических продаж — ВСЕГДА в приоритете (даже если yearplan активен)
+    # Команды редактирования исторических данных
+    edit_words = ["поменяй", "измени", "обнови", "добавь", "скорректируй", "замени", "поправь"]
+    if any(w in user_text.lower() for w in edit_words):
+        from agents.sales_agent import parse_historical_edit_command, save_historical_month, get_historical_raw, push_historical_to_github, MONTH_NAMES
+        parsed = parse_historical_edit_command(user_text)
+        if parsed and parsed.get("year") and parsed.get("month"):
+            year = parsed["year"]
+            month = parsed["month"]
+            with open(Path(__file__).parent.parent / "data" / "historical_sales.json", "r", encoding="utf-8") as f:
+                import json as _json
+                hist = _json.load(f)
+            existing = hist.get("years", {}).get(str(year), {}).get("months", {}).get(month, {})
+            gkz = parsed["grants_kz"] if parsed.get("grants_kz") is not None else existing.get("grants_kz", 0)
+            tb = parsed["tanda_bilim"] if parsed.get("tanda_bilim") is not None else existing.get("tanda_bilim", 0)
+            em = parsed["ekonomist_media"] if parsed.get("ekonomist_media") is not None else existing.get("ekonomist_media", 0)
+            save_historical_month(year, month, gkz, tb, em)
+            push_historical_to_github()
+            month_name = MONTH_NAMES.get(month, month)
+            result = get_historical_raw(year)
+            await update.message.reply_text(f"✅ {month_name} {year} обновлён.\n\n{result}")
+            return
+
+    # Запрос исторических продаж
     import re as _re
     hist_match = _re.search(r"20\d{2}", user_text)
-    if hist_match and any(w in user_text.lower() for w in ["продаж", "выручк", "отчет", "данные", "план", "статистик", "итог"]):
+    hist_keywords = ["продаж", "выручк", "отчет", "данные", "план", "статистик", "итог"]
+    if any(w in user_text.lower() for w in ["два года", "2 года", "последних", "оба года"]):
+        from agents.sales_agent import get_historical_two_years
+        result = get_historical_two_years()
+        await send_long(update, result)
+        return
+    if hist_match and any(w in user_text.lower() for w in hist_keywords):
         year = int(hist_match.group())
         from agents.sales_agent import get_historical_raw
         result = get_historical_raw(year)
