@@ -391,6 +391,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/reset — сбросить загруженные выписки\n"
         "/balances — запросить балансы сейчас\n"
         "/adddata 2026 — добавить/изменить данные продаж\n"
+        "/kpi — расчёт зарплаты и бонусов менеджера\n"
+        "/setkpi — установить KPI план на месяц\n"
         "/sales — запросить отчёт у продажника\n"
         "/yearplan — составить годовой план"
     )
@@ -427,6 +429,40 @@ def _save_adddata(updates: dict):
 def _reset_adddata():
     global adddata_state
     adddata_state.update({"active": False, "year": None, "month": None, "step": None, "temp": {}})
+
+
+async def cmd_kpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает KPI и зарплату менеджера за текущий или указанный месяц."""
+    if not is_owner(update):
+        return
+    args = context.args
+    year_month = args[0] if args else None
+    from agents.sales_agent import kpi_report
+    result = kpi_report(year_month)
+    await update.message.reply_text(result)
+
+
+async def cmd_setkpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Устанавливает KPI план: /setkpi grants_kz 2026-05 1500000 2000000"""
+    if not is_owner(update):
+        return
+    args = context.args
+    if not args or len(args) < 4:
+        await update.message.reply_text(
+            "Формат: /setkpi [проект] [год-месяц] [мин] [макс]\n\n"
+            "Проекты: grants_kz, tanda_bilim\n\n"
+            "Пример:\n"
+            "/setkpi grants_kz 2026-05 1500000 2000000\n"
+            "/setkpi tanda_bilim 2026-05 1500000 3000000"
+        )
+        return
+    project, year_month, min_val, max_val = args[0], args[1], args[2], args[3]
+    from agents.sales_agent import set_kpi_plan, PROJECTS
+    if project not in PROJECTS:
+        await update.message.reply_text(f"Неизвестный проект. Используй: grants_kz, tanda_bilim")
+        return
+    result = set_kpi_plan(project, year_month, float(min_val), float(max_val))
+    await update.message.reply_text(result)
 
 
 async def cmd_adddata(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -945,6 +981,8 @@ def main() -> None:
     app.add_handler(CommandHandler("sales", cmd_sales))
     app.add_handler(CommandHandler("yearplan", cmd_yearplan))
     app.add_handler(CommandHandler("adddata", cmd_adddata))
+    app.add_handler(CommandHandler("kpi", cmd_kpi))
+    app.add_handler(CommandHandler("setkpi", cmd_setkpi))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

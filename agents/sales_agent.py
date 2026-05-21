@@ -898,6 +898,108 @@ def parse_historical_edit_command(text: str) -> Optional[dict]:
         return None
 
 
+KPI_FILE = Path(__file__).parent.parent / "data" / "kpi_plans.json"
+
+DEFAULT_KPI = {
+    "fixed": {"grants_kz": 200000, "tanda_bilim": 200000},
+    "tiers": {
+        "grants_kz": {"min": 1500000, "max": 2000000},
+        "tanda_bilim": {"min": 1500000, "max": 3000000},
+    },
+    "months": {}
+}
+
+
+def _load_kpi() -> dict:
+    if KPI_FILE.exists():
+        with open(KPI_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return DEFAULT_KPI.copy()
+
+
+def _save_kpi(data: dict):
+    with open(KPI_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def calc_bonus(project: str, revenue: float, year_month: str) -> float:
+    """Считает бонус для проекта за месяц."""
+    kpi = _load_kpi()
+    month_data = kpi.get("months", {}).get(year_month, {}).get(project, {})
+    tiers = kpi.get("tiers", {}).get(project, {})
+    low = month_data.get("min", tiers.get("min", 0))
+    high = month_data.get("max", tiers.get("max", 0))
+
+    if revenue <= low:
+        return 0.0
+    elif revenue <= high:
+        return revenue * 0.05
+    else:
+        return revenue * 0.10
+
+
+def set_kpi_plan(project: str, year_month: str, min_val: float, max_val: float) -> str:
+    kpi = _load_kpi()
+    if "months" not in kpi:
+        kpi["months"] = {}
+    if year_month not in kpi["months"]:
+        kpi["months"][year_month] = {}
+    kpi["months"][year_month][project] = {"min": min_val, "max": max_val}
+    _save_kpi(kpi)
+    name = PROJECTS.get(project, project)
+    return f"✅ KPI план установлен: {name} {year_month}\n0% до {min_val:,.0f} ₸ | 5% до {max_val:,.0f} ₸ | 10% выше"
+
+
+def kpi_report(year_month: Optional[str] = None) -> str:
+    """Считает KPI и зарплату менеджера за месяц."""
+    today = date.today()
+    year_month = year_month or today.strftime("%Y-%m")
+    year, month = map(int, year_month.split("-"))
+    month_start = date(year, month, 1)
+    days_in_month = monthrange(year, month)[1]
+    month_end = date(year, month, days_in_month)
+    up_to = min(month_end, today)
+
+    data = _load()
+    kpi = _load_kpi()
+    kpi_projects = ["grants_kz", "tanda_bilim"]
+
+    month_label = MONTH_NAMES.get(f"{month:02d}", str(month)) if month <= 12 else year_month
+
+    lines = [f"💰 KPI РАСЧЁТ — {month_label} {year}", "─" * 32]
+    total_fixed = 0
+    total_bonus = 0
+
+    for proj in kpi_projects:
+        name = PROJECTS.get(proj, proj)
+        fixed = kpi.get("fixed", {}).get(proj, 0)
+        revenue = _month_revenue(data, proj, year_month, up_to)
+
+        month_data = kpi.get("months", {}).get(year_month, {}).get(proj, {})
+        tiers = kpi.get("tiers", {}).get(proj, {})
+        low = month_data.get("min", tiers.get("min", 0))
+        high = month_data.get("max", tiers.get("max", 0))
+
+        bonus = calc_bonus(proj, revenue, year_month)
+        pct = 10 if revenue > high else (5 if revenue > low else 0)
+
+        total_fixed += fixed
+        total_bonus += bonus
+
+        lines.append(f"\n📌 {name}")
+        lines.append(f"  Фикс: {fixed:,.0f} ₸")
+        lines.append(f"  Выручка: {revenue:,.0f} ₸")
+        lines.append(f"  Порог 5%: {low:,.0f} ₸  |  Порог 10%: {high:,.0f} ₸")
+        lines.append(f"  Бонус: {bonus:,.0f} ₸ ({pct}%)")
+
+    total = total_fixed + total_bonus
+    lines.append(f"\n{'─' * 32}")
+    lines.append(f"Фикс итого: {total_fixed:,.0f} ₸")
+    lines.append(f"Бонус итого: {total_bonus:,.0f} ₸")
+    lines.append(f"💵 К выплате: {total:,.0f} ₸")
+    return "\n".join(lines)
+
+
 class SalesAgent:
     def run(self, task: str) -> str:
         task_lower = task.lower().strip()
