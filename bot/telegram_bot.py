@@ -385,12 +385,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_owner(update):
         return
     await update.message.reply_text(
-        "Виртуальный СЕО запущен.\n\n"
+        "Виртуальный СЕО запущен. v2.1\n\n"
         "Команды:\n"
         "/clear — очистить диалог\n"
         "/reset — сбросить загруженные выписки\n"
         "/balances — запросить балансы сейчас\n"
-        "/adddata 2025 — добавить/изменить данные продаж\n"
+        "/adddata 2026 — добавить/изменить данные продаж\n"
         "/sales — запросить отчёт у продажника\n"
         "/yearplan — составить годовой план"
     )
