@@ -392,7 +392,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/balances — запросить балансы сейчас\n"
         "/adddata 2026 — добавить/изменить данные продаж\n"
         "/kpi — расчёт зарплаты и бонусов менеджера\n"
-        "/setkpi — установить KPI план на месяц\n"
+        "/kpiset — установить KPI план на месяц\n"
         "/sales — запросить отчёт у продажника\n"
         "/yearplan — составить годовой план"
     )
@@ -982,7 +982,7 @@ def main() -> None:
     app.add_handler(CommandHandler("yearplan", cmd_yearplan))
     app.add_handler(CommandHandler("adddata", cmd_adddata))
     app.add_handler(CommandHandler("kpi", cmd_kpi))
-    app.add_handler(CommandHandler("setkpi", cmd_setkpi))
+    app.add_handler(CommandHandler("kpiset", cmd_setkpi))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
