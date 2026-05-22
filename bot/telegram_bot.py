@@ -205,27 +205,26 @@ def _make_keyboard(buttons: list) -> InlineKeyboardMarkup:
 
 
 async def handle_salesperson_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пошаговый диалог с продажником по всем проектам."""
-    from agents.sales_agent import SalesConversation, daily_report, is_submitted_today
-
+    """Пошаговый диалог с продажником."""
+    from agents.sales_agent import SalesConversation
     conv = SalesConversation()
-    text = update.message.text.strip()
+    text = update.message.text.strip().lower()
 
     if not conv.is_active():
-        msg = conv.start()
-        await update.message.reply_text(msg)
+        # Ждём "да" чтобы начать
+        if text in ["да", "yes", "готов", "ок", "ok", "давай", "конечно"]:
+            msg = conv.start()
+            await update.message.reply_text(msg)
+        else:
+            await update.message.reply_text("Напиши 'да' когда будешь готов заполнить отчёт.")
         return
 
     await update.message.reply_chat_action("typing")
-    next_q, _, is_done = conv.process_answer(text)
+    next_q, is_done, summary = conv.process_answer(update.message.text.strip())
     await update.message.reply_text(next_q)
 
-    if is_done:
-        report = daily_report()
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"📊 Дневной отчёт по продажам:\n\n{report}"
-        )
+    if is_done and summary:
+        await context.bot.send_message(chat_id=OWNER_ID, text=summary)
 
 
 # ─── Курс доллара ────────────────────────────────────────────────────────────

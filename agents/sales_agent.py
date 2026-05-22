@@ -58,7 +58,7 @@ def _save(data: dict):
 
 def get_request_message() -> str:
     today = date.today().strftime("%d.%m.%Y")
-    return SALESPERSON_PROMPT_TEMPLATE.format(date=today)
+    return f"📊 Привет! Готов заполнить отчёт за сегодня ({today})?"
 
 
 def get_reminder_message(attempt: int = 1) -> str:
@@ -414,40 +414,13 @@ def _parse_negotiations(text: str) -> List[Dict]:
         return []
 
 
+SALES_PROJECTS = ["grants_kz", "tanda_bilim"]  # только эти два проекта
+
+
 class SalesConversation:
-    """Пошаговый диалог с продажником для сбора дневного отчёта."""
+    """Пошаговый диалог с продажником — сегодня и месяц по двум проектам."""
 
-    STEPS = ["revenue", "paid_clients", "deals", "pipeline", "negotiations"]
-
-    QUESTIONS = {
-        "revenue": (
-            "💰 {name} — выручка за сегодня?\n"
-            "Сколько денег реально поступило на счёт сегодня.\n"
-            "Пример: 350к  или  1.2М  или  0"
-        ),
-        "paid_clients": (
-            "🧾 Кто оплатил в этом месяце?\n"
-            "Перечисли ВСЕХ клиентов кто заплатил за текущий месяц и суммы.\n"
-            "Пример: Самрук 500к, Нурбанк 300к, ТОО Альфа 150к\n"
-            "Если никто — напиши нет"
-        ),
-        "deals": (
-            "🤝 Сделок закрыто сегодня?\n"
-            "Количество договоров подписанных сегодня.\n"
-            "Пример: 3  или  0"
-        ),
-        "pipeline": (
-            "📋 Общий pipeline?\n"
-            "Суммируй ВСЕ переговоры которые сейчас в работе (не только сегодняшние).\n"
-            "Пример: 2.5М  или  800к  или  0"
-        ),
-        "negotiations": (
-            "👥 Активные переговоры — назови клиентов:\n"
-            "Все с кем сейчас ведёшь переговоры + примерная сумма.\n"
-            "Пример: Самрук 300к, Нурбанк 150к, Казтелеком (без суммы)\n"
-            "Если нет — напиши нет"
-        ),
-    }
+    STEPS = ["today", "month"]
 
     def _load_state(self) -> dict:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -458,94 +431,92 @@ class SalesConversation:
             json.dump(state, f, ensure_ascii=False, indent=2)
 
     def is_stale(self, max_minutes: int = 120) -> bool:
-        """Проверяет завис ли диалог дольше max_minutes."""
         state = self._load_state()
         if not state.get("active") or not state.get("started_at"):
             return False
         from datetime import datetime as dt
         started = dt.fromisoformat(state["started_at"])
-        elapsed = (dt.now() - started).total_seconds() / 60
-        return elapsed > max_minutes
+        return (dt.now() - started).total_seconds() / 60 > max_minutes
 
     def start(self) -> str:
-        """Начинает диалог по всем трём проектам сразу."""
-        today = date.today().strftime("%d.%m.%Y")
         from datetime import datetime as dt
         state = {
             "active": True,
-            "step": self.STEPS[0],
+            "step": "today",
             "project_index": 0,
-            "active_projects": list(PROJECTS.keys()),
+            "active_projects": SALES_PROJECTS,
             "temp_data": {},
             "started_at": dt.now().isoformat()
         }
         self._save_state(state)
-        total = len(PROJECTS)
-        return (
-            f"📊 Дневной отчёт — {today}\n"
-            f"Заполни по всем {total} проектам. Начинаем!\n\n"
-            + self._ask_current(state)
-        )
+        proj_name = PROJECTS[SALES_PROJECTS[0]]
+        return f"💰 {proj_name} — сколько продаж сегодня? (₸)\nПример: 150000 или 150к"
 
     def process_answer(self, text: str) -> tuple:
-        """
-        Обрабатывает ответ на текущий вопрос.
-        Возвращает (следующий вопрос, клавиатура или None, is_done).
-        """
+        """Возвращает (следующий вопрос, is_done, summary_for_owner)."""
         state = self._load_state()
         step = state["step"]
         proj_key = state["active_projects"][state["project_index"]]
+        proj_name = PROJECTS[proj_key]
 
         if proj_key not in state["temp_data"]:
             state["temp_data"][proj_key] = {}
 
-        if step == "revenue":
+        if step == "today":
             state["temp_data"][proj_key]["revenue"] = _parse_amount(text)
-        elif step == "paid_clients":
-            state["temp_data"][proj_key]["paid_clients"] = _parse_negotiations(text)
-        elif step == "calls":
-            state["temp_data"][proj_key]["calls_made"] = _parse_count(text)
-        elif step == "deals":
-            state["temp_data"][proj_key]["deals_closed"] = _parse_count(text)
-        elif step == "pipeline":
-            state["temp_data"][proj_key]["pipeline_total"] = _parse_amount(text)
-        elif step == "negotiations":
-            state["temp_data"][proj_key]["active_negotiations"] = _parse_negotiations(text)
+            state["step"] = "month"
+            self._save_state(state)
+            month_name = date.today().strftime("%B")
+            return f"📅 {proj_name} — итого оплачено за месяц? (₸)\nПример: 2500000 или 2.5М", False, None
 
-        # Переходим к следующему шагу
-        step_idx = self.STEPS.index(step)
-        if step_idx + 1 < len(self.STEPS):
-            state["step"] = self.STEPS[step_idx + 1]
-        else:
-            # Переходим к следующему проекту
+        elif step == "month":
+            state["temp_data"][proj_key]["month_total"] = _parse_amount(text)
             state["project_index"] += 1
+
             if state["project_index"] < len(state["active_projects"]):
-                state["step"] = self.STEPS[0]
+                next_proj = PROJECTS[state["active_projects"][state["project_index"]]]
+                state["step"] = "today"
+                self._save_state(state)
+                return f"💰 {next_proj} — сколько продаж сегодня? (₸)\nПример: 80000 или 80к", False, None
             else:
-                # Всё собрали
                 state["active"] = False
                 self._save_state(state)
-                entries = self._build_entries(state)
-                save_entries(entries)
-                return "✅ Отлично! Всё записал. Спасибо!", None, True
+                summary = self._build_summary(state)
+                self._save_entries(state)
+                return "✅ Отчёт сохранён! Спасибо.", True, summary
 
-        self._save_state(state)
-        return self._ask_current(state), None, False
+    def _build_summary(self, state: dict) -> str:
+        today_str = date.today().strftime("%d.%m.%Y")
+        lines = [f"📊 Отчёт за {today_str}", "─" * 28]
+        for proj_key in state["active_projects"]:
+            proj_name = PROJECTS[proj_key]
+            d = state["temp_data"].get(proj_key, {})
+            today_rev = d.get("revenue", 0)
+            month_rev = d.get("month_total", 0)
+            lines.append(f"\n{proj_name}")
+            lines.append(f"  Сегодня: {today_rev:,.0f} ₸")
+            lines.append(f"  Месяц итого: {month_rev:,.0f} ₸")
+        return "\n".join(lines)
 
-    def _ask_current(self, state: dict) -> str:
-        proj_key = state["active_projects"][state["project_index"]]
-        proj_name = PROJECTS[proj_key]
-        step = state["step"]
-        total = len(state["active_projects"])
-        idx = state["project_index"] + 1
-        progress = f"[{idx}/{total}] " if total > 1 else ""
-        return f"{progress}{self.QUESTIONS[step].format(name=proj_name)}"
-
-    def _build_entries(self, state: dict) -> List[Dict]:
-        return [
-            {"project": key, **vals}
-            for key, vals in state["temp_data"].items()
-        ]
+    def _save_entries(self, state: dict):
+        today = date.today().isoformat()
+        data = _load()
+        for proj_key in state["active_projects"]:
+            d = state["temp_data"].get(proj_key, {})
+            entry = {
+                "project": proj_key,
+                "date": today,
+                "revenue": d.get("revenue", 0),
+                "month_total": d.get("month_total", 0),
+            }
+            data["entries"] = [
+                e for e in data["entries"]
+                if not (e["date"] == today and e["project"] == proj_key)
+            ]
+            data["entries"].append(entry)
+        data["daily_state"]["submitted_today"] = True
+        data["daily_state"]["submitted_date"] = today
+        _save(data)
 
     def is_active(self) -> bool:
         state = self._load_state()
