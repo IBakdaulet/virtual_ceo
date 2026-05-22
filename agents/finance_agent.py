@@ -73,6 +73,30 @@ def _save(data: dict):
     data["last_updated"] = datetime.now().isoformat()
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    _push_to_github(DATA_FILE, "data/finance.json")
+
+
+def _push_to_github(file_path: Path, repo_path: str):
+    """Пушит файл в GitHub чтобы данные не терялись при редеплое."""
+    import base64, httpx
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return
+    url = f"https://api.github.com/repos/IBakdaulet/virtual_ceo/contents/{repo_path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    try:
+        resp = httpx.get(url, headers=headers, timeout=10)
+        sha = resp.json().get("sha", "")
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        encoded = base64.b64encode(content.encode()).decode()
+        httpx.put(url, headers=headers, json={
+            "message": f"update: {repo_path} via bot",
+            "content": encoded,
+            "sha": sha,
+        }, timeout=10)
+    except Exception:
+        pass
 
 
 def get_total_in_kzt(data: dict) -> dict:
