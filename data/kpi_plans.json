@@ -1,0 +1,28 @@
+{
+  "fixed": {
+    "grants_kz": 200000,
+    "tanda_bilim": 200000
+  },
+  "tiers": {
+    "grants_kz": {
+      "min": 1500000,
+      "max": 2000000
+    },
+    "tanda_bilim": {
+      "min": 1500000,
+      "max": 3000000
+    }
+  },
+  "months": {
+    "2026-05": {
+      "grants_kz": {
+        "min": 1500000.0,
+        "max": 2200000.0
+      },
+      "tanda_bilim": {
+        "min": 1500000.0,
+        "max": 3000000.0
+      }
+    }
+  }
+}

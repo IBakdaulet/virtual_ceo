@@ -423,6 +423,10 @@ class SalesConversation:
     STEPS = ["today", "month"]
 
     def _load_state(self) -> dict:
+        if not STATE_FILE.exists():
+            default = {"active": False, "step": None, "project_index": 0, "active_projects": [], "temp_data": {}}
+            self._save_state(default)
+            return default
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
 
