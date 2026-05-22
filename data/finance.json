@@ -19,14 +19,14 @@
     "kaspi_deposit_grants": {
       "name": "Kaspi депозит Grants KZ",
       "currency": "KZT",
-      "balance": 1500,
+      "balance": 1500.0,
       "type": "deposit",
       "note": "Рекламные деньги Grants KZ"
     },
     "halyk_card": {
       "name": "Halyk карта",
       "currency": "KZT",
-      "balance": 39700.0,
+      "balance": 93900.0,
       "type": "card"
     },
     "halyk_deposit_usd": {
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 464.32,
-  "last_updated": "2026-05-22T15:33:07.900849",
+  "last_updated": "2026-05-22T15:33:09.267592",
   "limits": {
     "daily": {},
     "weekly": {},
