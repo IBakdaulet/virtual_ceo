@@ -43,6 +43,19 @@ adddata_state: dict = {
     "active": False, "year": None, "month": None,
     "step": None, "temp": {}
 }  # in-memory
+
+kpiset_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
+
+def _load_kpiset() -> dict:
+    return kpiset_state
+
+def _save_kpiset(updates: dict):
+    global kpiset_state
+    kpiset_state.update(updates)
+
+def _reset_kpiset():
+    global kpiset_state
+    kpiset_state.update({"active": False, "step": None, "temp": {}})
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 
 def _load_yearplan() -> dict:
@@ -443,26 +456,15 @@ async def cmd_kpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_setkpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Устанавливает KPI план: /setkpi grants_kz 2026-05 1500000 2000000"""
+    """Пошаговая установка KPI плана."""
     if not is_owner(update):
         return
-    args = context.args
-    if not args or len(args) < 4:
-        await update.message.reply_text(
-            "Формат: /setkpi [проект] [год-месяц] [мин] [макс]\n\n"
-            "Проекты: grants_kz, tanda_bilim\n\n"
-            "Пример:\n"
-            "/setkpi grants_kz 2026-05 1500000 2000000\n"
-            "/setkpi tanda_bilim 2026-05 1500000 3000000"
-        )
-        return
-    project, year_month, min_val, max_val = args[0], args[1], args[2], args[3]
-    from agents.sales_agent import set_kpi_plan, PROJECTS
-    if project not in PROJECTS:
-        await update.message.reply_text(f"Неизвестный проект. Используй: grants_kz, tanda_bilim")
-        return
-    result = set_kpi_plan(project, year_month, float(min_val), float(max_val))
-    await update.message.reply_text(result)
+    _save_kpiset({"active": True, "step": "month", "temp": {}})
+    await update.message.reply_text(
+        "📊 Установка KPI плана\n\n"
+        "За какой месяц? Напиши год-месяц:\n"
+        "Пример: 2026-05"
+    )
 
 
 async def cmd_adddata(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -525,6 +527,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
+
+    # Режим установки KPI
+    ks = _load_kpiset()
+    if ks["active"]:
+        if user_text.lower() in ["отмена", "стоп", "cancel"]:
+            _reset_kpiset()
+            await update.message.reply_text("Отменено.")
+            return
+        from agents.sales_agent import set_kpi_plan, _parse_amount
+        step = ks["step"]
+        temp = ks["temp"]
+
+        if step == "month":
+            import re as _re3
+            if not _re3.match(r"^\d{4}-\d{2}$", user_text.strip()):
+                await update.message.reply_text("Напиши в формате: 2026-05")
+                return
+            temp["year_month"] = user_text.strip()
+            _save_kpiset({"step": "grants_min", "temp": temp})
+            await update.message.reply_text(
+                "Grants KZ — нижний порог (0% бонус)?\n"
+                "Пример: 1500000 или 1.5М"
+            )
+        elif step == "grants_min":
+            temp["grants_min"] = _parse_amount(user_text)
+            _save_kpiset({"step": "grants_max", "temp": temp})
+            await update.message.reply_text(
+                "Grants KZ — верхний порог (10% бонус)?\n"
+                "Пример: 2000000 или 2М"
+            )
+        elif step == "grants_max":
+            temp["grants_max"] = _parse_amount(user_text)
+            _save_kpiset({"step": "tanda_min", "temp": temp})
+            await update.message.reply_text(
+                "Tanda Bilim — нижний порог (0% бонус)?\n"
+                "Пример: 1500000 или 1.5М"
+            )
+        elif step == "tanda_min":
+            temp["tanda_min"] = _parse_amount(user_text)
+            _save_kpiset({"step": "tanda_max", "temp": temp})
+            await update.message.reply_text(
+                "Tanda Bilim — верхний порог (10% бонус)?\n"
+                "Пример: 3000000 или 3М"
+            )
+        elif step == "tanda_max":
+            temp["tanda_max"] = _parse_amount(user_text)
+            ym = temp["year_month"]
+            r1 = set_kpi_plan("grants_kz", ym, temp["grants_min"], temp["grants_max"])
+            r2 = set_kpi_plan("tanda_bilim", ym, temp["tanda_min"], temp["tanda_max"])
+            _reset_kpiset()
+            await update.message.reply_text(f"✅ KPI план установлен на {ym}:\n\n{r1}\n{r2}")
+        return
 
     # Режим добавления данных
     ad = _load_adddata()
