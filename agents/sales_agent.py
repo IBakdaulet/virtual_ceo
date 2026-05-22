@@ -521,6 +521,17 @@ class SalesConversation:
         data["daily_state"]["submitted_today"] = True
         data["daily_state"]["submitted_date"] = today
         _save(data)
+        try:
+            from agents.sheets_agent import append_sales_row
+            td = state["temp_data"]
+            append_sales_row(
+                today_grants=td.get("grants_kz", {}).get("revenue", 0),
+                today_tanda=td.get("tanda_bilim", {}).get("revenue", 0),
+                month_grants=td.get("grants_kz", {}).get("month_total", 0),
+                month_tanda=td.get("tanda_bilim", {}).get("month_total", 0),
+            )
+        except Exception as e:
+            print(f"[Sheets] sales sync error: {e}")
 
     def is_active(self) -> bool:
         state = self._load_state()

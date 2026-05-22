@@ -513,6 +513,19 @@ async def cmd_yearplan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+async def cmd_syncsheets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ручная синхронизация исторических данных в Google Sheets."""
+    if not is_owner(update):
+        return
+    await update.message.reply_text("⏳ Синхронизирую таблицы...")
+    try:
+        from agents.sheets_agent import sync_historical_to_sheets
+        sync_historical_to_sheets()
+        await update.message.reply_text("✅ Google Sheets обновлён — листы История 2025 и История 2026.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def cmd_sales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Внеплановый запрос дневного отчёта у продажника."""
     if not is_owner(update):
@@ -644,6 +657,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
                 from agents.sales_agent import push_historical_to_github
                 push_historical_to_github()
+                try:
+                    from agents.sheets_agent import sync_historical_to_sheets
+                    sync_historical_to_sheets()
+                except Exception as se:
+                    logger.error(f"[Sheets] historical sync error: {se}")
+                    await update.message.reply_text(f"⚠️ Данные сохранены, но Google Sheets не обновился: {se}")
                 _reset_adddata()
                 updated = get_historical_raw(year)
                 await update.message.reply_text(f"✅ Сохранено!\n\n{updated}")
@@ -698,6 +717,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             lines.append(f"Бонусы: {grants_bonus + tanda_bonus:,.0f} ₸")
             lines.append(f"💵 К выплате: {total:,.0f} ₸")
             await update.message.reply_text("\n".join(lines))
+            try:
+                from agents.sheets_agent import append_kpi_row
+                append_kpi_row(ym, grants_rev, tanda_rev,
+                               grants_bonus, tanda_bonus, fixed, grants_bonus + tanda_bonus)
+            except Exception as e:
+                logger.error(f"[Sheets] KPI sync error: {e}")
         return
 
     # Запрос исторических продаж
@@ -1099,6 +1124,7 @@ def main() -> None:
     app.add_handler(CommandHandler("adddata", cmd_adddata))
     app.add_handler(CommandHandler("bonus", cmd_kpi))
     app.add_handler(CommandHandler("plan", cmd_setkpi))
+    app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
