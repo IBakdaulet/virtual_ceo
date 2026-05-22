@@ -130,6 +130,13 @@ def format_summary(data: dict) -> str:
     lines.append(f"  В тенге: {totals['total_kzt']:,.0f} ₸")
     lines.append(f"  В долларах: ~${totals['total_kzt']/rate:,.0f}")
 
+    change = get_monthly_change()
+    if change:
+        diff = change["diff"]
+        sign = "+" if diff >= 0 else ""
+        icon = "📈" if diff >= 0 else "📉"
+        lines.append(f"\n{icon} За месяц: {sign}{diff:,.0f} ₸ (с {change['date']})")
+
     if data.get("last_updated"):
         dt = datetime.fromisoformat(data["last_updated"])
         lines.append(f"\n_Обновлено: {dt.strftime('%d.%m.%Y %H:%M')}_")
@@ -152,6 +159,52 @@ def format_business(data: dict) -> str:
     return "\n".join(lines)
 
 
+SNAPSHOTS_FILE = Path(__file__).parent.parent / "data" / "balance_snapshots.json"
+
+
+def save_monthly_snapshot(data: dict):
+    """Сохраняет снапшот балансов с текущей датой."""
+    if SNAPSHOTS_FILE.exists():
+        with open(SNAPSHOTS_FILE, "r", encoding="utf-8") as f:
+            snapshots = json.load(f)
+    else:
+        snapshots = []
+
+    totals = get_total_in_kzt(data)
+    snapshots.append({
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "total_kzt": totals["total_kzt"],
+        "usd_rate": totals["usd_rate"],
+    })
+    # Храним только последние 24 снапшота
+    snapshots = snapshots[-24:]
+    with open(SNAPSHOTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(snapshots, f, ensure_ascii=False, indent=2)
+
+
+def get_monthly_change() -> Optional[dict]:
+    """Возвращает изменение за ~30 дней или None если нет данных."""
+    if not SNAPSHOTS_FILE.exists():
+        return None
+    with open(SNAPSHOTS_FILE, "r", encoding="utf-8") as f:
+        snapshots = json.load(f)
+    if len(snapshots) < 2:
+        return None
+    # Берём снапшот ~30 дней назад
+    from datetime import date as _date, timedelta
+    target = (_date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+    old = None
+    for s in snapshots:
+        if s["date"] <= target:
+            old = s
+    if not old:
+        old = snapshots[0]
+    current = snapshots[-1]
+    diff = current["total_kzt"] - old["total_kzt"]
+    return {"old": old["total_kzt"], "current": current["total_kzt"],
+            "diff": diff, "date": old["date"]}
+
+
 def update_balance(account_key: str, new_balance: float, data: dict) -> str:
     """Обновляет баланс счёта."""
     if account_key not in data["accounts"]:
@@ -160,7 +213,9 @@ def update_balance(account_key: str, new_balance: float, data: dict) -> str:
     data["accounts"][account_key]["balance"] = new_balance
     diff = new_balance - old
     sign = "+" if diff >= 0 else ""
+    data["last_updated"] = datetime.now().isoformat()
     _save(data)
+    save_monthly_snapshot(data)
     name = data["accounts"][account_key]["name"]
     return f"✅ {name}: {old:,.0f} → {new_balance:,.0f} ({sign}{diff:,.0f})"
 
