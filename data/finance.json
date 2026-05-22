@@ -32,7 +32,7 @@
     "halyk_deposit_usd": {
       "name": "Halyk депозит USD",
       "currency": "USD",
-      "balance": 27000,
+      "balance": 27000.0,
       "type": "deposit"
     },
     "halyk_deposit_kzt": {
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 464.32,
-  "last_updated": "2026-05-22T15:33:12.156796",
+  "last_updated": "2026-05-22T15:33:12.981482",
   "limits": {
     "daily": {},
     "weekly": {},
