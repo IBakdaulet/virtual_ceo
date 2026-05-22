@@ -8,6 +8,7 @@ import os
 import anthropic
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 DATA_FILE = Path(__file__).parent.parent / "data" / "finance.json"
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
