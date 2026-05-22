@@ -638,6 +638,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
 
+    # Расчёт KPI и бонусов
+    kpi_words = ["бонус", "kpi", "зарплат", "расчитай продажник", "бонус продажник", "выплат"]
+    if any(w in user_text.lower() for w in kpi_words):
+        from agents.sales_agent import kpi_report
+        import re as _re4
+        ym_match = _re4.search(r"\d{4}-\d{2}", user_text)
+        result = kpi_report(ym_match.group() if ym_match else None)
+        await update.message.reply_text(result)
+        return
+
     # Запрос исторических продаж
     import re as _re
     hist_match = _re.search(r"20\d{2}", user_text)
