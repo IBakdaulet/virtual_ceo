@@ -45,6 +45,7 @@ adddata_state: dict = {
 }  # in-memory
 
 kpiset_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
+kpicalc_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
 
 def _load_kpiset() -> dict:
     return kpiset_state
@@ -56,6 +57,17 @@ def _save_kpiset(updates: dict):
 def _reset_kpiset():
     global kpiset_state
     kpiset_state.update({"active": False, "step": None, "temp": {}})
+
+def _load_kpicalc() -> dict:
+    return kpicalc_state
+
+def _save_kpicalc(updates: dict):
+    global kpicalc_state
+    kpicalc_state.update(updates)
+
+def _reset_kpicalc():
+    global kpicalc_state
+    kpicalc_state.update({"active": False, "step": None, "temp": {}})
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 
 def _load_yearplan() -> dict:
@@ -445,14 +457,17 @@ def _reset_adddata():
 
 
 async def cmd_kpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показывает KPI и зарплату менеджера за текущий или указанный месяц."""
+    """Пошаговый расчёт KPI — вводишь выручку сам."""
     if not is_owner(update):
         return
-    args = context.args
-    year_month = args[0] if args else None
-    from agents.sales_agent import kpi_report
-    result = kpi_report(year_month)
-    await update.message.reply_text(result)
+    from datetime import date
+    ym = date.today().strftime("%Y-%m")
+    _save_kpicalc({"active": True, "step": "grants", "temp": {"year_month": ym}})
+    await update.message.reply_text(
+        f"💰 Расчёт бонусов за {ym}\n\n"
+        f"Grants KZ — фактическая выручка за месяц?\n"
+        f"Пример: 1.8М или 1800000"
+    )
 
 
 async def cmd_setkpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -638,14 +653,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
 
-    # Расчёт KPI и бонусов
-    kpi_words = ["бонус", "kpi", "зарплат", "расчитай продажник", "бонус продажник", "выплат"]
-    if any(w in user_text.lower() for w in kpi_words):
-        from agents.sales_agent import kpi_report
-        import re as _re4
-        ym_match = _re4.search(r"\d{4}-\d{2}", user_text)
-        result = kpi_report(ym_match.group() if ym_match else None)
-        await update.message.reply_text(result)
+    # Режим расчёта KPI
+    kc = _load_kpicalc()
+    if kc["active"]:
+        if user_text.lower() in ["отмена", "стоп", "cancel"]:
+            _reset_kpicalc()
+            await update.message.reply_text("Отменено.")
+            return
+        from agents.sales_agent import calc_bonus, _parse_amount
+        from agents.sales_agent import MONTH_NAMES
+        step = kc["step"]
+        temp = kc["temp"]
+        ym = temp["year_month"]
+
+        if step == "grants":
+            temp["grants_rev"] = _parse_amount(user_text)
+            _save_kpicalc({"step": "tanda", "temp": temp})
+            await update.message.reply_text(
+                "Tanda Bilim — фактическая выручка за месяц?\n"
+                "Пример: 2.5М или 0"
+            )
+        elif step == "tanda":
+            temp["tanda_rev"] = _parse_amount(user_text)
+            _reset_kpicalc()
+
+            grants_rev = temp["grants_rev"]
+            tanda_rev = temp["tanda_rev"]
+            grants_bonus = calc_bonus("grants_kz", grants_rev, ym)
+            tanda_bonus = calc_bonus("tanda_bilim", tanda_rev, ym)
+            fixed = 200000 + 200000
+            total = fixed + grants_bonus + tanda_bonus
+
+            month_num = ym.split("-")[1]
+            month_name = MONTH_NAMES.get(month_num, ym)
+
+            lines = [f"💰 РАСЧЁТ БОНУСОВ — {month_name} {ym[:4]}", "─" * 32]
+            lines.append(f"\n📌 Grants KZ")
+            lines.append(f"  Выручка: {grants_rev:,.0f} ₸")
+            lines.append(f"  Бонус: {grants_bonus:,.0f} ₸")
+            lines.append(f"\n📌 Tanda Bilim")
+            lines.append(f"  Выручка: {tanda_rev:,.0f} ₸")
+            lines.append(f"  Бонус: {tanda_bonus:,.0f} ₸")
+            lines.append(f"\n{'─' * 32}")
+            lines.append(f"Фикс: {fixed:,.0f} ₸")
+            lines.append(f"Бонусы: {grants_bonus + tanda_bonus:,.0f} ₸")
+            lines.append(f"💵 К выплате: {total:,.0f} ₸")
+            await update.message.reply_text("\n".join(lines))
         return
 
     # Запрос исторических продаж
