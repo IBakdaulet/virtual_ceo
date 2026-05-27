@@ -106,26 +106,23 @@ def populate_historical(year: int, months_data: dict):
     gc = _get_client()
     if not gc:
         return
-    try:
-        sh = gc.open_by_key(SHEET_ID)
-        ws = _get_or_create_sheet(sh, f"История {year}")
-        header = ["Месяц", "Grants KZ", "Tanda Bilim", "Ekonomist Media", "Итого"]
-        rows = [header]
-        totals = [0.0, 0.0, 0.0]
-        for month_num in sorted(months_data.keys()):
-            m = months_data[month_num]
-            gkz = m.get("grants_kz", 0)
-            tb = m.get("tanda_bilim", 0)
-            em = m.get("ekonomist_media", 0)
-            totals[0] += gkz
-            totals[1] += tb
-            totals[2] += em
-            rows.append([MONTH_NAMES.get(month_num, month_num), gkz, tb, em, gkz + tb + em])
-        rows.append(["ИТОГО", totals[0], totals[1], totals[2], sum(totals)])
-        ws.clear()
-        ws.update("A1", rows)
-    except Exception as e:
-        print(f"[Sheets] populate_historical error: {e}")
+    sh = gc.open_by_key(SHEET_ID)
+    ws = _get_or_create_sheet(sh, f"История {year}")
+    header = ["Месяц", "Grants KZ", "Tanda Bilim", "Ekonomist Media", "Итого"]
+    rows = [header]
+    totals = [0.0, 0.0, 0.0]
+    for month_num in sorted(months_data.keys()):
+        m = months_data[month_num]
+        gkz = m.get("grants_kz", 0)
+        tb = m.get("tanda_bilim", 0)
+        em = m.get("ekonomist_media", 0)
+        totals[0] += gkz
+        totals[1] += tb
+        totals[2] += em
+        rows.append([MONTH_NAMES.get(month_num, month_num), gkz, tb, em, gkz + tb + em])
+    rows.append(["ИТОГО", totals[0], totals[1], totals[2], sum(totals)])
+    ws.clear()
+    ws.update("A1", rows)
 
 
 def sync_historical_to_sheets():
