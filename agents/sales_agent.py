@@ -637,7 +637,7 @@ def save_historical_month(year: int, month: str, grants_kz: float, tanda_bilim: 
     with open(HISTORICAL_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     yr = str(year)
-    if yr not in data["years"]:
+    if yr not in data["years"] or not isinstance(data["years"][yr], dict):
         data["years"][yr] = {"months": {}}
     if "months" not in data["years"][yr]:
         data["years"][yr]["months"] = {}

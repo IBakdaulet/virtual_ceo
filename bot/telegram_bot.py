@@ -39,10 +39,8 @@ STATE_FILE = Path(__file__).parent.parent / "data" / "daily_state.json"
 
 conversation_history: list = []
 statement_analyses: list = []
-adddata_state: dict = {
-    "active": False, "year": None, "month": None,
-    "step": None, "temp": {}
-}  # in-memory
+
+ADDDATA_FILE = Path(__file__).parent.parent / "data" / "adddata_state.json"
 
 kpiset_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
 kpicalc_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
@@ -477,15 +475,20 @@ async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 def _load_adddata() -> dict:
-    return adddata_state
+    if ADDDATA_FILE.exists():
+        with open(ADDDATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"active": False, "year": None, "month": None, "step": None, "temp": {}}
 
 def _save_adddata(updates: dict):
-    global adddata_state
-    adddata_state.update(updates)
+    state = _load_adddata()
+    state.update(updates)
+    with open(ADDDATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
 def _reset_adddata():
-    global adddata_state
-    adddata_state.update({"active": False, "year": None, "month": None, "step": None, "temp": {}})
+    with open(ADDDATA_FILE, "w", encoding="utf-8") as f:
+        json.dump({"active": False, "year": None, "month": None, "step": None, "temp": {}}, f)
 
 
 async def cmd_kpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
