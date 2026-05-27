@@ -202,8 +202,8 @@ async def weekly_sales_job(context):
 async def monthly_sales_job(context):
     """1-е число 9:00 — месячный отчёт владельцу."""
     from agents.sales_agent import monthly_report
-    from datetime import date
-    last_month = date.today().replace(day=1) - __import__('datetime').timedelta(days=1)
+    import datetime as _dt
+    last_month = date.today().replace(day=1) - _dt.timedelta(days=1)
     report = monthly_report(last_month.strftime("%Y-%m"))
     await context.bot.send_message(chat_id=OWNER_ID, text=report)
 
@@ -478,7 +478,6 @@ async def cmd_kpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Пошаговый расчёт KPI — вводишь выручку сам."""
     if not is_owner(update):
         return
-    from datetime import date
     ym = date.today().strftime("%Y-%m")
     _save_kpicalc({"active": True, "step": "ask_month", "temp": {}})
     await update.message.reply_text(
@@ -812,7 +811,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         temp = kc["temp"]
 
         if step == "ask_month":
-            from datetime import date
             import re as _re_ym
             if user_text.lower() in ["текущий", "сейчас", "этот"]:
                 ym = date.today().strftime("%Y-%m")
