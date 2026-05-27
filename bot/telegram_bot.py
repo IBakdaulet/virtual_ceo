@@ -554,6 +554,7 @@ async def _extract_invoice_data(text: str) -> dict | None:
 
 Верни JSON:
 {{
+  "invoice_number": 35,
   "client_name": "ТОО Astana Publicity",
   "client_bin": "100540014078",
   "client_address": "г. Астана, ул. Туркестан 28А",
@@ -568,11 +569,12 @@ async def _extract_invoice_data(text: str) -> dict | None:
 - Реклама в Ekonomist Media → 00000000152
 - Другое → 00000000000
 
-Если в тексте явно указан код (например "код 68" или "code 68") — используй его, дополни нулями слева до 11 знаков (68 → 00000000068).
+Если в тексте явно указан код услуги (например "код 68") — используй его, дополни нулями до 11 знаков (68 → 00000000068).
 
 Правила:
+- invoice_number: номер счёта из текста (например "счёт 35", "№35", "номер 35") — если не указан, верни null
 - "150к" = 150000, "1.5М" = 1500000
-- Если данных не хватает — верни null
+- Если client_name, client_bin, client_address, service_name или amount не найдены — верни null
 - Только JSON"""
     resp = client.messages.create(
         model="claude-opus-4-6", max_tokens=512,
@@ -600,7 +602,7 @@ async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if text.strip():
         await update.message.reply_chat_action("typing")
         data = await _extract_invoice_data(text)
-        if data and all(data.get(k) for k in ["client_name", "client_bin", "client_address", "service_name", "amount"]):
+        if data and all(data.get(k) for k in ["invoice_number", "client_name", "client_bin", "client_address", "service_name", "amount"]):
             await _generate_and_send_invoice(update, data)
         else:
             await update.message.reply_text(
@@ -626,8 +628,8 @@ async def _generate_and_send_invoice(update: Update, data: dict):
     from io import BytesIO
     await update.message.reply_chat_action("upload_document")
     try:
-        from agents.invoice_agent import get_next_invoice_number, generate_invoice_pdf, save_invoice_record
-        num = get_next_invoice_number()
+        from agents.invoice_agent import generate_invoice_pdf, save_invoice_record
+        num = data.get("invoice_number") or data.get("number")
         today = date.today()
         pdf_bytes = generate_invoice_pdf(
             invoice_number=num,
@@ -814,11 +816,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if step == "waiting_text":
             await update.message.reply_chat_action("typing")
             data = await _extract_invoice_data(user_text)
-            if data and all(data.get(k) for k in ["client_name", "client_bin", "client_address", "service_name", "amount"]):
+            required = ["invoice_number", "client_name", "client_bin", "client_address", "service_name", "amount"]
+            if data and all(data.get(k) for k in required):
                 _reset_invoice()
                 await _generate_and_send_invoice(update, data)
             else:
                 missing = []
+                if not data or not data.get("invoice_number"): missing.append("номер счёта")
                 if not data or not data.get("client_name"): missing.append("название клиента")
                 if not data or not data.get("client_bin"): missing.append("БИН")
                 if not data or not data.get("client_address"): missing.append("адрес")
