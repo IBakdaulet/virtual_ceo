@@ -8,7 +8,7 @@ import os
 import json
 import logging
 import tempfile
-from datetime import datetime, time
+from datetime import datetime, time, date
 from pathlib import Path
 
 import pytz
