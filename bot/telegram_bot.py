@@ -46,6 +46,7 @@ adddata_state: dict = {
 
 kpiset_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
 kpicalc_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
+invoice_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
 
 def _load_kpiset() -> dict:
     return kpiset_state
@@ -68,6 +69,18 @@ def _save_kpicalc(updates: dict):
 def _reset_kpicalc():
     global kpicalc_state
     kpicalc_state.update({"active": False, "step": None, "temp": {}})
+
+def _load_invoice() -> dict:
+    return invoice_state
+
+def _save_invoice(updates: dict):
+    global invoice_state
+    invoice_state.update(updates)
+
+def _reset_invoice():
+    global invoice_state
+    invoice_state.update({"active": False, "step": None, "temp": {}})
+
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 
 def _load_yearplan() -> dict:
@@ -209,6 +222,12 @@ async def handle_salesperson_message(update: Update, context: ContextTypes.DEFAU
     from agents.sales_agent import SalesConversation
     conv = SalesConversation()
     text = update.message.text.strip().lower()
+
+    # Продажник в режиме создания счёта
+    inv = _load_invoice()
+    if inv["active"]:
+        await handle_message(update, context)
+        return
 
     if not conv.is_active():
         # Ждём "да" чтобы начать
@@ -526,6 +545,17 @@ async def cmd_syncsheets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Запуск создания счёта на оплату."""
+    if not (is_owner(update) or is_salesperson(update)):
+        return
+    _save_invoice({"active": True, "step": "client_name", "temp": {}})
+    await update.message.reply_text(
+        "🧾 Создание счёта на оплату\n\n"
+        "Название компании клиента?"
+    )
+
+
 async def cmd_sales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Внеплановый запрос дневного отчёта у продажника."""
     if not is_owner(update):
@@ -670,6 +700,104 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text(f"❌ Ошибка: {e}")
             return
 
+
+    # Режим создания счёта
+    inv = _load_invoice()
+    if inv["active"]:
+        if user_text.lower() in ["отмена", "стоп", "cancel"]:
+            _reset_invoice()
+            await update.message.reply_text("Отменено.")
+            return
+        from agents.sales_agent import _parse_amount
+        step = inv["step"]
+        temp = inv["temp"]
+
+        if step == "client_name":
+            temp["client_name"] = user_text.strip()
+            _save_invoice({"step": "client_bin", "temp": temp})
+            await update.message.reply_text("БИН/ИИН клиента?")
+
+        elif step == "client_bin":
+            temp["client_bin"] = user_text.strip()
+            _save_invoice({"step": "client_address", "temp": temp})
+            await update.message.reply_text("Адрес клиента?\nПример: г. Алматы, ул. Абая 10")
+
+        elif step == "client_address":
+            temp["client_address"] = user_text.strip()
+            _save_invoice({"step": "service", "temp": temp})
+            await update.message.reply_text(
+                "Услуга:\n"
+                "1 — Реклама в Grants.kz\n"
+                "2 — Реклама в Tanda Bilim\n"
+                "3 — Реклама в Ekonomist Media\n"
+                "4 — Своё название"
+            )
+
+        elif step == "service":
+            choices = {
+                "1": ("Реклама в Grants.kz", "00000000150"),
+                "2": ("Реклама в Tanda Bilim", "00000000151"),
+                "3": ("Реклама в Ekonomist Media", "00000000152"),
+            }
+            if user_text.strip() in choices:
+                temp["service_name"], temp["service_code"] = choices[user_text.strip()]
+                _save_invoice({"step": "amount", "temp": temp})
+                await update.message.reply_text("Сумма? (в тенге)\nПример: 150000 или 150к")
+            elif user_text.strip() == "4":
+                _save_invoice({"step": "service_custom", "temp": temp})
+                await update.message.reply_text("Напиши название услуги:")
+            else:
+                await update.message.reply_text("Выбери 1, 2, 3 или 4")
+
+        elif step == "service_custom":
+            temp["service_name"] = user_text.strip()
+            temp["service_code"] = "00000000000"
+            _save_invoice({"step": "amount", "temp": temp})
+            await update.message.reply_text("Сумма? (в тенге)\nПример: 150000 или 150к")
+
+        elif step == "amount":
+            amount = _parse_amount(user_text)
+            if amount <= 0:
+                await update.message.reply_text("Введи корректную сумму, например: 150000 или 150к")
+                return
+            temp["amount"] = amount
+            _reset_invoice()
+            await update.message.reply_chat_action("upload_document")
+            try:
+                from agents.invoice_agent import (
+                    get_next_invoice_number, generate_invoice_pdf,
+                    save_invoice_record, amount_to_words
+                )
+                num = get_next_invoice_number()
+                today = date.today()
+                pdf_bytes = generate_invoice_pdf(
+                    invoice_number=num,
+                    invoice_date=today,
+                    client_name=temp["client_name"],
+                    client_bin=temp["client_bin"],
+                    client_address=temp["client_address"],
+                    service_name=temp["service_name"],
+                    service_code=temp["service_code"],
+                    amount=amount,
+                )
+                save_invoice_record({
+                    "number": num,
+                    "date": today.isoformat(),
+                    "client": temp["client_name"],
+                    "amount": amount,
+                    "service": temp["service_name"],
+                })
+                fname = f"Счет_{num}_{temp['client_name'].replace(' ', '_')}.pdf"
+                from io import BytesIO
+                await update.message.reply_document(
+                    document=BytesIO(pdf_bytes),
+                    filename=fname,
+                    caption=f"🧾 Счёт №{num} | {temp['client_name']} | {amount:,.0f} ₸"
+                )
+            except Exception as e:
+                logger.error(f"Invoice generation error: {e}")
+                await update.message.reply_text(f"❌ Ошибка генерации счёта: {e}")
+        return
 
     # Режим расчёта KPI
     kc = _load_kpicalc()
@@ -1144,6 +1272,7 @@ def main() -> None:
     app.add_handler(CommandHandler("bonus", cmd_kpi))
     app.add_handler(CommandHandler("plan", cmd_setkpi))
     app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
+    app.add_handler(CommandHandler("invoice", cmd_invoice))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
