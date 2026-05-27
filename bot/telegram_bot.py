@@ -691,6 +691,162 @@ async def _generate_and_send_invoice(update: Update, data: dict):
         await update.message.reply_text(f"❌ Ошибка генерации счёта: {e}")
 
 
+async def cmd_ceo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Запускает CEO-анализ с выбором направления."""
+    if not is_owner(update):
+        return
+    keyboard = _make_keyboard([
+        [("💰 Финансы", "ceo:finance"), ("📈 Продажи", "ceo:sales")],
+        [("🧾 Счета", "ceo:invoices"), ("🔭 Полная картина", "ceo:all")],
+    ])
+    await update.message.reply_text(
+        "🤖 Virtual CEO — анализ\n\nВыбери направление:",
+        reply_markup=keyboard,
+    )
+
+
+async def _ceo_analyze(topic: str, context_data: str) -> str:
+    """Отправляет данные в Claude и получает стратегический анализ."""
+    import anthropic as _ant
+    client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    system = (
+        "Ты виртуальный CEO медиа-холдинга Kettik Group (Казахстан). "
+        "Анализируй данные кратко и по делу. Давай 3-5 конкретных советов "
+        "с цифрами и приоритетами. Пиши на русском, без воды."
+    )
+    resp = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1500,
+        system=system,
+        messages=[{"role": "user", "content": f"Проанализируй данные и дай рекомендации.\n\nТема: {topic}\n\nДанные:\n{context_data}"}],
+    )
+    return resp.content[0].text
+
+
+async def _ceo_finance(update: Update):
+    await update.message.reply_chat_action("typing")
+    try:
+        from agents.finance_agent import _load, format_summary
+        data = _load()
+        summary = format_summary(data)
+        accounts_detail = json.dumps(data.get("accounts", {}), ensure_ascii=False, indent=2)
+        context_data = f"Текущие балансы:\n{summary}\n\nДетали счетов:\n{accounts_detail}"
+        result = await _ceo_analyze("Финансы — балансы счетов", context_data)
+        await send_long(update, f"💰 Финансовый анализ\n{'─'*30}\n\n{result}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+async def _ceo_sales(update: Update):
+    await update.message.reply_chat_action("typing")
+    try:
+        from agents.sales_agent import get_historical_two_years, daily_report, _load as _load_sales
+        history = get_historical_two_years()
+        sales_data = _load_sales()
+        today_block = ""
+        try:
+            today_block = f"\nДневной отчёт (последний):\n{daily_report()}"
+        except Exception:
+            pass
+        kpi_file = Path(__file__).parent.parent / "data" / "kpi_plans.json"
+        kpi_block = ""
+        if kpi_file.exists():
+            with open(kpi_file, "r", encoding="utf-8") as f:
+                kpi_block = f"\nKPI планы:\n{json.dumps(json.load(f), ensure_ascii=False, indent=2)}"
+        context_data = f"{history}{today_block}{kpi_block}"
+        result = await _ceo_analyze("Продажи — выручка, динамика, KPI", context_data)
+        await send_long(update, f"📈 Анализ продаж\n{'─'*30}\n\n{result}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+async def _ceo_invoices(update: Update):
+    await update.message.reply_chat_action("typing")
+    try:
+        from agents.invoice_agent import _load_invoices
+        inv_data = _load_invoices()
+        invoices = inv_data.get("invoices", [])
+        if not invoices:
+            await update.message.reply_text("📋 Счетов пока нет.")
+            return
+        total = sum(float(i.get("amount", 0)) for i in invoices)
+        context_data = (
+            f"Всего счетов: {len(invoices)}\n"
+            f"Общая сумма: {total:,.0f} ₸\n\n"
+            f"История:\n{json.dumps(invoices, ensure_ascii=False, indent=2)}"
+        )
+        result = await _ceo_analyze("Счета на оплату — дебиторская задолженность, клиенты", context_data)
+        await send_long(update, f"🧾 Анализ счетов\n{'─'*30}\n\n{result}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+async def _ceo_all(update: Update):
+    await update.message.reply_chat_action("typing")
+    try:
+        from agents.finance_agent import _load as _load_fin, format_summary
+        from agents.sales_agent import get_historical_two_years, daily_report
+        from agents.invoice_agent import _load_invoices
+
+        fin_data = _load_fin()
+        fin_summary = format_summary(fin_data)
+
+        sales_history = get_historical_two_years()
+
+        today_sales = ""
+        try:
+            today_sales = daily_report()
+        except Exception:
+            pass
+
+        inv_data = _load_invoices()
+        invoices = inv_data.get("invoices", [])
+        inv_total = sum(float(i.get("amount", 0)) for i in invoices)
+
+        kpi_file = Path(__file__).parent.parent / "data" / "kpi_plans.json"
+        kpi_block = ""
+        if kpi_file.exists():
+            with open(kpi_file, "r", encoding="utf-8") as f:
+                kpi_block = json.dumps(json.load(f), ensure_ascii=False, indent=2)
+
+        context_data = (
+            f"=== ФИНАНСЫ ===\n{fin_summary}\n\n"
+            f"=== ПРОДАЖИ (история) ===\n{sales_history}\n\n"
+            f"=== ПРОДАЖИ (сегодня) ===\n{today_sales}\n\n"
+            f"=== СЧЕТА ===\nВсего: {len(invoices)}, сумма: {inv_total:,.0f} ₸\n\n"
+            f"=== KPI ПЛАНЫ ===\n{kpi_block}"
+        )
+        result = await _ceo_analyze("Полная картина бизнеса — финансы, продажи, счета, KPI", context_data)
+        await send_long(update, f"🔭 Полный анализ\n{'─'*30}\n\n{result}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+async def handle_ceo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает нажатия кнопок CEO-анализа."""
+    query = update.callback_query
+    await query.answer()
+    if not query.data.startswith("ceo:"):
+        return
+    direction = query.data.split(":", 1)[1]
+    labels = {"finance": "💰 Финансы", "sales": "📈 Продажи", "invoices": "🧾 Счета", "all": "🔭 Полная картина"}
+    await query.edit_message_text(f"{labels.get(direction, direction)} — анализирую...")
+    # Создаём фиктивный update чтобы reply_text работал корректно
+    class _FakeUpdate:
+        def __init__(self, q):
+            self.message = q.message
+            self.effective_user = q.from_user
+    fake = _FakeUpdate(query)
+    if direction == "finance":
+        await _ceo_finance(fake)
+    elif direction == "sales":
+        await _ceo_sales(fake)
+    elif direction == "invoices":
+        await _ceo_invoices(fake)
+    elif direction == "all":
+        await _ceo_all(fake)
+
+
 async def cmd_sales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Внеплановый запрос дневного отчёта у продажника."""
     if not is_owner(update):
@@ -1315,6 +1471,8 @@ def main() -> None:
     app.add_handler(CommandHandler("plan", cmd_setkpi))
     app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
     app.add_handler(CommandHandler("invoice", cmd_invoice))
+    app.add_handler(CommandHandler("ceo", cmd_ceo))
+    app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
