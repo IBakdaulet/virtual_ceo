@@ -610,13 +610,14 @@ async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         return
 
-    # Пошаговый режим
-    _save_invoice({"active": True, "step": "client_name", "temp": {}})
+    _save_invoice({"active": True, "step": "waiting_text", "temp": {}})
     await update.message.reply_text(
-        "🧾 Создание счёта на оплату\n\n"
-        "Название компании клиента?\n\n"
-        "Или отправь всё одной строкой:\n"
-        "/invoice ТОО Рога и Копыта, БИН 123456789, адрес г. Алматы ул. Абая 10, реклама Grants KZ, 150000"
+        "🧾 Счёт на оплату\n\n"
+        "Напиши данные клиента — я сам всё извлеку:\n\n"
+        "Пример:\n"
+        "ТОО Astana Publicity, БИН 100540014078, г. Астана ул. Туркестан 28А, реклама Grants KZ, 150 000 тенге\n\n"
+        "Если услуга нестандартная — добавь код:\n"
+        "пост в телеграм, код 68, 80 000 тенге"
     )
 
 
@@ -808,66 +809,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             _reset_invoice()
             await update.message.reply_text("Отменено.")
             return
-        from agents.sales_agent import _parse_amount
         step = inv["step"]
-        temp = inv["temp"]
 
-        if step == "client_name":
-            temp["client_name"] = user_text.strip()
-            _save_invoice({"step": "client_bin", "temp": temp})
-            await update.message.reply_text("БИН/ИИН клиента?")
-
-        elif step == "client_bin":
-            temp["client_bin"] = user_text.strip()
-            _save_invoice({"step": "client_address", "temp": temp})
-            await update.message.reply_text("Адрес клиента?\nПример: г. Алматы, ул. Абая 10")
-
-        elif step == "client_address":
-            temp["client_address"] = user_text.strip()
-            _save_invoice({"step": "service", "temp": temp})
-            await update.message.reply_text(
-                "Услуга:\n"
-                "1 — Реклама в Grants.kz\n"
-                "2 — Реклама в Tanda Bilim\n"
-                "3 — Реклама в Ekonomist Media\n"
-                "4 — Своё название"
-            )
-
-        elif step == "service":
-            choices = {
-                "1": ("Реклама в Grants.kz", "00000000150"),
-                "2": ("Реклама в Tanda Bilim", "00000000151"),
-                "3": ("Реклама в Ekonomist Media", "00000000152"),
-            }
-            if user_text.strip() in choices:
-                temp["service_name"], temp["service_code"] = choices[user_text.strip()]
-                _save_invoice({"step": "amount", "temp": temp})
-                await update.message.reply_text("Сумма? (в тенге)\nПример: 150000 или 150к")
-            elif user_text.strip() == "4":
-                _save_invoice({"step": "service_custom", "temp": temp})
-                await update.message.reply_text("Напиши название услуги:")
+        if step == "waiting_text":
+            await update.message.reply_chat_action("typing")
+            data = await _extract_invoice_data(user_text)
+            if data and all(data.get(k) for k in ["client_name", "client_bin", "client_address", "service_name", "amount"]):
+                _reset_invoice()
+                await _generate_and_send_invoice(update, data)
             else:
-                await update.message.reply_text("Выбери 1, 2, 3 или 4")
-
-        elif step == "service_custom":
-            temp["service_name"] = user_text.strip()
-            _save_invoice({"step": "service_code", "temp": temp})
-            await update.message.reply_text("Код услуги? (из 1С)\nПример: 68")
-
-        elif step == "service_code":
-            raw = user_text.strip().lstrip("0") or "0"
-            temp["service_code"] = raw.zfill(11)
-            _save_invoice({"step": "amount", "temp": temp})
-            await update.message.reply_text("Сумма? (в тенге)\nПример: 150000 или 150к")
-
-        elif step == "amount":
-            amount = _parse_amount(user_text)
-            if amount <= 0:
-                await update.message.reply_text("Введи корректную сумму, например: 150000 или 150к")
-                return
-            temp["amount"] = amount
-            _reset_invoice()
-            await _generate_and_send_invoice(update, temp)
+                missing = []
+                if not data or not data.get("client_name"): missing.append("название клиента")
+                if not data or not data.get("client_bin"): missing.append("БИН")
+                if not data or not data.get("client_address"): missing.append("адрес")
+                if not data or not data.get("service_name"): missing.append("услуга")
+                if not data or not data.get("amount"): missing.append("сумма")
+                await update.message.reply_text(
+                    f"Не хватает данных: {', '.join(missing)}\n\n"
+                    f"Напиши ещё раз с полными данными или 'отмена'."
+                )
         return
 
     # Режим расчёта KPI
