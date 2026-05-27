@@ -750,7 +750,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         elif step == "service_custom":
             temp["service_name"] = user_text.strip()
-            temp["service_code"] = "00000000000"
+            _save_invoice({"step": "service_code", "temp": temp})
+            await update.message.reply_text("Код услуги? (из 1С)\nПример: 68")
+
+        elif step == "service_code":
+            raw = user_text.strip().lstrip("0") or "0"
+            temp["service_code"] = raw.zfill(11)
             _save_invoice({"step": "amount", "temp": temp})
             await update.message.reply_text("Сумма? (в тенге)\nПример: 150000 или 150к")
 
