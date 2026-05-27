@@ -171,11 +171,21 @@ def generate_invoice_pdf(
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
+    def draw_border(canvas, doc):
+        from reportlab.lib import colors as _c
+        from reportlab.lib.units import mm as _mm
+        from reportlab.lib.pagesizes import A4 as _A4
+        w, h = _A4
+        canvas.setStrokeColor(_c.black)
+        canvas.setLineWidth(0.5)
+        canvas.rect(10*_mm, 10*_mm, w - 20*_mm, h - 20*_mm)
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
         leftMargin=15*mm, rightMargin=15*mm,
-        topMargin=10*mm, bottomMargin=15*mm
+        topMargin=15*mm, bottomMargin=15*mm,
+        onFirstPage=draw_border, onLaterPages=draw_border,
     )
 
     def p(text, font="DejaVu", size=7, align=TA_LEFT, bold=False):
@@ -244,7 +254,7 @@ def generate_invoice_pdf(
     story.append(it)
 
     # Таблица услуг
-    fmt = f'{amount:,.2f}'.replace(',', ' ')
+    fmt = f'{amount:,.2f}'.replace(',', ' ').replace('.', ',')
     items = [
         [p("№", align=C, bold=True), p("Код", align=C, bold=True),
          p("Наименование", align=C, bold=True), p("Кол-во", align=C, bold=True),
