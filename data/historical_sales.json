@@ -43,9 +43,9 @@
           "ekonomist_media": 0
         },
         "11": {
-          "grants_kz": 1010000,
-          "tanda_bilim": 0,
-          "ekonomist_media": 0
+          "grants_kz": 1010000.0,
+          "tanda_bilim": 2900000.0,
+          "ekonomist_media": 0.0
         },
         "12": {
           "grants_kz": 1510000,
