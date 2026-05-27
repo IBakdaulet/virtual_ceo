@@ -2,24 +2,80 @@
   "years": {
     "2025": {
       "months": {
-        "03": {"grants_kz": 973000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "04": {"grants_kz": 2050000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "05": {"grants_kz": 1523000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "06": {"grants_kz": 2725000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "07": {"grants_kz": 2514000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "08": {"grants_kz": 1509000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "09": {"grants_kz": 1807000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "10": {"grants_kz": 2337000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "11": {"grants_kz": 1010000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "12": {"grants_kz": 1510000, "tanda_bilim": 0, "ekonomist_media": 0}
+        "03": {
+          "grants_kz": 973000.0,
+          "tanda_bilim": 0.0,
+          "ekonomist_media": 0.0
+        },
+        "04": {
+          "grants_kz": 2050000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "05": {
+          "grants_kz": 1523000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "06": {
+          "grants_kz": 2725000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "07": {
+          "grants_kz": 2514000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "08": {
+          "grants_kz": 1509000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "09": {
+          "grants_kz": 1807000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "10": {
+          "grants_kz": 2337000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "11": {
+          "grants_kz": 1010000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "12": {
+          "grants_kz": 1510000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        }
       }
     },
     "2026": {
       "months": {
-        "01": {"grants_kz": 645000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "02": {"grants_kz": 1420000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "03": {"grants_kz": 1170000, "tanda_bilim": 0, "ekonomist_media": 0},
-        "04": {"grants_kz": 3031000, "tanda_bilim": 0, "ekonomist_media": 0}
+        "01": {
+          "grants_kz": 645000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "02": {
+          "grants_kz": 1420000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "03": {
+          "grants_kz": 1170000,
+          "tanda_bilim": 0,
+          "ekonomist_media": 0
+        },
+        "04": {
+          "grants_kz": 2491000.0,
+          "tanda_bilim": 0.0,
+          "ekonomist_media": 0.0
+        }
       }
     }
   }

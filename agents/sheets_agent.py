@@ -70,10 +70,10 @@ def append_sales_row(today_grants: float, today_tanda: float,
         print(f"[Sheets] append_sales_row error: {e}")
 
 
-def append_kpi_row(year_month: str, grants_rev: float, tanda_rev: float,
+def upsert_kpi_row(year_month: str, grants_rev: float, tanda_rev: float,
                    grants_bonus: float, tanda_bonus: float,
                    total_fixed: float, total_bonus: float):
-    """Добавляет строку в лист «KPI»."""
+    """Обновляет строку KPI если период уже есть, иначе добавляет новую."""
     gc = _get_client()
     if not gc:
         return
@@ -87,9 +87,15 @@ def append_kpi_row(year_month: str, grants_rev: float, tanda_rev: float,
         row = [year_month, grants_rev, tanda_rev,
                grants_bonus, tanda_bonus,
                total_fixed, total_bonus, total_fixed + total_bonus]
-        ws.append_row(row, value_input_option="USER_ENTERED")
+        # Ищем существующую строку с таким периодом
+        col_values = ws.col_values(1)  # колонка "Период"
+        if year_month in col_values:
+            row_idx = col_values.index(year_month) + 1
+            ws.update(f"A{row_idx}", [row])
+        else:
+            ws.append_row(row, value_input_option="USER_ENTERED")
     except Exception as e:
-        print(f"[Sheets] append_kpi_row error: {e}")
+        print(f"[Sheets] upsert_kpi_row error: {e}")
 
 
 def populate_historical(year: int, months_data: dict):

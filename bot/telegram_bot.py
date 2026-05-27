@@ -461,11 +461,11 @@ async def cmd_kpi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     from datetime import date
     ym = date.today().strftime("%Y-%m")
-    _save_kpicalc({"active": True, "step": "grants", "temp": {"year_month": ym}})
+    _save_kpicalc({"active": True, "step": "ask_month", "temp": {}})
     await update.message.reply_text(
-        f"💰 Расчёт бонусов за {ym}\n\n"
-        f"Grants KZ — фактическая выручка за месяц?\n"
-        f"Пример: 1.8М или 1800000"
+        f"💰 Расчёт бонусов\n\n"
+        f"За какой месяц? Напиши период или 'текущий':\n"
+        f"Пример: 2026-04 или текущий (сейчас: {ym})"
     )
 
 
@@ -682,6 +682,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         from agents.sales_agent import MONTH_NAMES
         step = kc["step"]
         temp = kc["temp"]
+
+        if step == "ask_month":
+            from datetime import date
+            import re as _re_ym
+            if user_text.lower() in ["текущий", "сейчас", "этот"]:
+                ym = date.today().strftime("%Y-%m")
+            elif _re_ym.match(r"^\d{4}-\d{2}$", user_text.strip()):
+                ym = user_text.strip()
+            else:
+                await update.message.reply_text("Напиши в формате: 2026-04 или 'текущий'")
+                return
+            temp["year_month"] = ym
+            _save_kpicalc({"step": "grants", "temp": temp})
+            await update.message.reply_text(
+                f"Grants KZ — фактическая выручка за {ym}?\n"
+                f"Пример: 1.8М или 1800000"
+            )
+            return
+
         ym = temp["year_month"]
 
         if step == "grants":
@@ -718,8 +737,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             lines.append(f"💵 К выплате: {total:,.0f} ₸")
             await update.message.reply_text("\n".join(lines))
             try:
-                from agents.sheets_agent import append_kpi_row
-                append_kpi_row(ym, grants_rev, tanda_rev,
+                from agents.sheets_agent import upsert_kpi_row
+                upsert_kpi_row(ym, grants_rev, tanda_rev,
                                grants_bonus, tanda_bonus, fixed, grants_bonus + tanda_bonus)
             except Exception as e:
                 logger.error(f"[Sheets] KPI sync error: {e}")
