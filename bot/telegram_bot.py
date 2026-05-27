@@ -80,6 +80,8 @@ def _reset_invoice():
     invoice_state.update({"active": False, "step": None, "temp": {}})
 
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
+ANALYST_STATE_FILE = Path(__file__).parent.parent / "data" / "analyst_state.json"
+ANALYST_HISTORY_FILE = Path(__file__).parent.parent / "data" / "analyst_history.json"
 
 def _load_yearplan() -> dict:
     if YEARPLAN_FILE.exists():
@@ -90,6 +92,78 @@ def _load_yearplan() -> dict:
 def _save_yearplan(state: dict):
     with open(YEARPLAN_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+# ─── Аналитик ─────────────────────────────────────────────────────────────────
+
+def _analyst_active() -> bool:
+    if not ANALYST_STATE_FILE.exists():
+        return False
+    with open(ANALYST_STATE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f).get("active", False)
+
+def _analyst_set_active(value: bool):
+    with open(ANALYST_STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"active": value}, f)
+
+def _analyst_load_history() -> list:
+    if not ANALYST_HISTORY_FILE.exists():
+        return []
+    with open(ANALYST_HISTORY_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def _analyst_save_history(history: list):
+    with open(ANALYST_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+def _analyst_clear_history():
+    with open(ANALYST_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump([], f)
+
+
+def _build_analyst_context() -> str:
+    """Собирает актуальные бизнес-данные для системного промпта аналитика."""
+    parts = []
+    try:
+        from agents.finance_agent import _load as _load_fin, format_summary
+        fin = _load_fin()
+        parts.append(f"=== ЛИЧНЫЕ СЧЕТА ОСНОВАТЕЛЯ ===\n{format_summary(fin)}")
+    except Exception:
+        pass
+    try:
+        from agents.sales_agent import get_historical_two_years
+        parts.append(f"=== ВЫРУЧКА ПРОЕКТОВ (история) ===\n{get_historical_two_years()}")
+    except Exception:
+        pass
+    try:
+        kpi_file = Path(__file__).parent.parent / "data" / "kpi_plans.json"
+        if kpi_file.exists():
+            with open(kpi_file, "r", encoding="utf-8") as f:
+                parts.append(f"=== KPI ПЛАНЫ ===\n{json.dumps(json.load(f), ensure_ascii=False, indent=2)}")
+    except Exception:
+        pass
+    try:
+        from agents.invoice_agent import _load_invoices
+        inv = _load_invoices()
+        invoices = inv.get("invoices", [])
+        total = sum(float(i.get("amount", 0)) for i in invoices)
+        parts.append(f"=== СЧЕТА НА ОПЛАТУ ===\nВсего: {len(invoices)}, сумма: {total:,.0f} ₸\nПоследние: {json.dumps(invoices[-5:], ensure_ascii=False)}")
+    except Exception:
+        pass
+    return "\n\n".join(parts)
+
+
+ANALYST_SYSTEM = """Ты бизнес-аналитик и советник Ибакдаулета — казахстанского медиа-предпринимателя, основателя Kettik Group.
+
+Проекты:
+- Grants KZ: гранты для казахстанцев, реклама в Instagram/Telegram, ~1.5М ₸/мес
+- Tanda Bilim: история Казахстана (видео), реклама, ~1.5М ₸/мес
+- Ekonomist Media: экономика/финансы, молодой проект, пока не зарабатывает
+- Kettik Group: медиа-холдинг ~70 человек, ~75М ₸/мес (доля 35%)
+
+Твоя роль: анализировать данные, находить точки роста, давать конкретные рекомендации с цифрами.
+Помни контекст предыдущих сообщений в этом разговоре.
+Отвечай на русском, кратко и по делу."""
 
 
 # ─── Утилиты ────────────────────────────────────────────────────────────────
@@ -708,6 +782,102 @@ async def _generate_and_send_invoice(update: Update, data: dict):
         await update.message.reply_text(f"❌ Ошибка генерации счёта: {e}")
 
 
+async def _handle_analyst_message(update: Update):
+    """Обрабатывает сообщение в режиме аналитика."""
+    import asyncio
+    import anthropic as _ant
+
+    user_text = update.message.text.strip()
+    history = _analyst_load_history()
+    history.append({"role": "user", "content": user_text})
+
+    await update.message.reply_chat_action("typing")
+
+    def _call():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        biz_context = _build_analyst_context()
+        system = ANALYST_SYSTEM + f"\n\n--- АКТУАЛЬНЫЕ ДАННЫЕ ---\n{biz_context}"
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=2000,
+            system=system,
+            messages=history[-20:],  # последние 20 сообщений
+        )
+        return resp.content[0].text
+
+    try:
+        answer = await asyncio.to_thread(_call)
+        history.append({"role": "assistant", "content": answer})
+        _analyst_save_history(history)
+        await send_long(update, answer)
+    except Exception as e:
+        logger.error(f"[Analyst] error: {e}")
+        await update.message.reply_text(f"❌ Ошибка аналитика: {e}")
+
+
+async def cmd_analyst(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Управление режимом бизнес-аналитика."""
+    if not is_owner(update):
+        return
+
+    arg = (context.args[0].lower() if context.args else "").strip()
+
+    if arg == "stop":
+        _analyst_set_active(False)
+        await update.message.reply_text("🔴 Режим аналитика выключен.")
+        return
+
+    if arg == "reset":
+        _analyst_clear_history()
+        await update.message.reply_text("🗑 История аналитика очищена. Продолжай — я помню контекст с нуля.")
+        return
+
+    if arg == "history":
+        history = _analyst_load_history()
+        if not history:
+            await update.message.reply_text("История пуста.")
+            return
+        lines = []
+        for msg in history[-10:]:
+            role = "Ты" if msg["role"] == "user" else "Аналитик"
+            text = msg["content"][:200] + ("..." if len(msg["content"]) > 200 else "")
+            lines.append(f"[{role}]: {text}")
+        await send_long(update, "\n\n".join(lines))
+        return
+
+    # Включаем режим
+    _analyst_set_active(True)
+    history = _analyst_load_history()
+    if history:
+        await update.message.reply_text(
+            f"🟢 Аналитик включён. Продолжаю прошлый разговор ({len(history)} сообщений).\n"
+            f"Задай вопрос. /analyst stop — выйти, /analyst reset — очистить историю."
+        )
+    else:
+        await update.message.reply_chat_action("typing")
+        # Первый запуск — даём вводный анализ
+        history.append({"role": "user", "content": "Привет! Дай краткий обзор текущего состояния бизнеса на основе имеющихся данных."})
+        import asyncio, anthropic as _ant
+
+        def _intro():
+            client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            biz_context = _build_analyst_context()
+            system = ANALYST_SYSTEM + f"\n\n--- АКТУАЛЬНЫЕ ДАННЫЕ ---\n{biz_context}"
+            resp = client.messages.create(
+                model="claude-opus-4-6", max_tokens=2000,
+                system=system, messages=history[-20:],
+            )
+            return resp.content[0].text
+
+        try:
+            answer = await asyncio.to_thread(_intro)
+            history.append({"role": "assistant", "content": answer})
+            _analyst_save_history(history)
+            await send_long(update, f"🟢 Аналитик включён.\n\n{answer}\n\n─────\nЗадавай вопросы. /analyst stop — выйти.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def cmd_ceo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Запускает CEO-анализ с выбором направления."""
     if not is_owner(update):
@@ -904,6 +1074,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
+
+    # Режим аналитика
+    if _analyst_active():
+        if user_text.lower() in ["стоп", "stop", "/analyst stop"]:
+            _analyst_set_active(False)
+            await update.message.reply_text("🔴 Режим аналитика выключен.")
+            return
+        await _handle_analyst_message(update)
+        return
 
     # Режим установки KPI
     ks = _load_kpiset()
@@ -1500,6 +1679,7 @@ def main() -> None:
     app.add_handler(CommandHandler("plan", cmd_setkpi))
     app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
     app.add_handler(CommandHandler("invoice", cmd_invoice))
+    app.add_handler(CommandHandler("analyst", cmd_analyst))
     app.add_handler(CommandHandler("ceo", cmd_ceo))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
