@@ -259,13 +259,20 @@ async def auto_update_rate(context):
 
 async def request_balances(context):
     """Отправляет запрос балансов владельцу."""
+    state = load_state()
+    now = datetime.now(ALMATY_TZ)
+    today_str = now.strftime("%Y-%m-%d")
+
+    # Не беспокоим если уже обновили сегодня
+    if today_str in state.get("last_update", ""):
+        return
+
     from agents.finance_agent import format_summary, _load
     data = _load()
     summary = format_summary(data)
 
-    state = load_state()
     state["pending_update"] = True
-    state["last_request"] = datetime.now(ALMATY_TZ).isoformat()
+    state["last_request"] = now.isoformat()
     save_state(state)
 
     text = (
@@ -278,10 +285,17 @@ async def request_balances(context):
 
 
 async def reminder_balances(context):
-    """Повторный запрос в 12:00 если не ответил."""
+    """Повторный запрос в 12:00 если не ответил вчера вечером."""
     state = load_state()
+    now = datetime.now(ALMATY_TZ)
+    today_str = now.strftime("%Y-%m-%d")
+
+    # Обновил сегодня — не беспокоим
+    if today_str in state.get("last_update", ""):
+        return
+    # Нет pending — уже всё ок
     if not state.get("pending_update"):
-        return  # Уже обновил — не беспокоим
+        return
 
     await context.bot.send_message(
         chat_id=OWNER_ID,
