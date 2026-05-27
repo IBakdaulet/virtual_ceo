@@ -286,7 +286,7 @@ def generate_invoice_pdf(
     story.append(Spacer(1, 10*mm))
 
     # Исполнитель + печать
-    stamp_path = FONT_DIR / "stamp_0_0.png"
+    stamp_path = FONT_DIR / "stamp_transparent.png"
     if stamp_path.exists():
         from reportlab.platypus import Image as RLImage
         stamp = RLImage(str(stamp_path), width=30*mm, height=30*mm)
