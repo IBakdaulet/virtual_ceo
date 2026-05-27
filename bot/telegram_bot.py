@@ -544,15 +544,114 @@ async def cmd_syncsheets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+async def _extract_invoice_data(text: str) -> dict | None:
+    """Claude извлекает данные счёта из свободного текста."""
+    import anthropic as _ant, json as _json, re as _re
+    client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    prompt = f"""Из текста извлеки данные для счёта на оплату.
+
+Текст: "{text}"
+
+Верни JSON:
+{{
+  "client_name": "ТОО Astana Publicity",
+  "client_bin": "100540014078",
+  "client_address": "г. Астана, ул. Туркестан 28А",
+  "service_name": "Реклама в Grants.kz",
+  "service_code": "00000000150",
+  "amount": 150000
+}}
+
+Сервис-коды:
+- Реклама в Grants.kz → 00000000150
+- Реклама в Tanda Bilim → 00000000151
+- Реклама в Ekonomist Media → 00000000152
+- Другое → 00000000000
+
+Правила:
+- "150к" = 150000, "1.5М" = 1500000
+- Если данных не хватает — верни null
+- Только JSON"""
+    resp = client.messages.create(
+        model="claude-opus-4-6", max_tokens=512,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    raw = resp.content[0].text.strip()
+    if raw.lower() == "null":
+        return None
+    m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+    if not m:
+        return None
+    try:
+        return _json.loads(m.group())
+    except Exception:
+        return None
+
+
 async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Запуск создания счёта на оплату."""
+    """Создание счёта — с текстом сразу или пошагово."""
     if not (is_owner(update) or is_salesperson(update)):
         return
+
+    # Если передан текст сразу: /invoice ТОО Рога и Копыта, БИН 123...
+    text = " ".join(context.args) if context.args else ""
+    if text.strip():
+        await update.message.reply_chat_action("typing")
+        data = await _extract_invoice_data(text)
+        if data and all(data.get(k) for k in ["client_name", "client_bin", "client_address", "service_name", "amount"]):
+            await _generate_and_send_invoice(update, data)
+        else:
+            await update.message.reply_text(
+                "Не смог извлечь все данные. Укажи:\n"
+                "клиент, БИН, адрес, услуга, сумма\n\n"
+                "Или начни пошагово — напиши /invoice без текста."
+            )
+        return
+
+    # Пошаговый режим
     _save_invoice({"active": True, "step": "client_name", "temp": {}})
     await update.message.reply_text(
         "🧾 Создание счёта на оплату\n\n"
-        "Название компании клиента?"
+        "Название компании клиента?\n\n"
+        "Или отправь всё одной строкой:\n"
+        "/invoice ТОО Рога и Копыта, БИН 123456789, адрес г. Алматы ул. Абая 10, реклама Grants KZ, 150000"
     )
+
+
+async def _generate_and_send_invoice(update: Update, data: dict):
+    """Генерирует PDF и отправляет в чат."""
+    from io import BytesIO
+    await update.message.reply_chat_action("upload_document")
+    try:
+        from agents.invoice_agent import get_next_invoice_number, generate_invoice_pdf, save_invoice_record
+        num = get_next_invoice_number()
+        today = date.today()
+        pdf_bytes = generate_invoice_pdf(
+            invoice_number=num,
+            invoice_date=today,
+            client_name=data["client_name"],
+            client_bin=data["client_bin"],
+            client_address=data["client_address"],
+            service_name=data["service_name"],
+            service_code=data.get("service_code", "00000000000"),
+            amount=float(data["amount"]),
+        )
+        save_invoice_record({
+            "number": num,
+            "date": today.isoformat(),
+            "client": data["client_name"],
+            "amount": data["amount"],
+            "service": data["service_name"],
+        })
+        fname = f"Счет_{num}_{data['client_name'].replace(' ', '_')}.pdf"
+        await update.message.reply_document(
+            document=BytesIO(pdf_bytes),
+            filename=fname,
+            caption=f"🧾 Счёт №{num} | {data['client_name']} | {float(data['amount']):,.0f} ₸"
+        )
+    except Exception as e:
+        logger.error(f"Invoice generation error: {e}")
+        await update.message.reply_text(f"❌ Ошибка генерации счёта: {e}")
 
 
 async def cmd_sales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -766,41 +865,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 return
             temp["amount"] = amount
             _reset_invoice()
-            await update.message.reply_chat_action("upload_document")
-            try:
-                from agents.invoice_agent import (
-                    get_next_invoice_number, generate_invoice_pdf,
-                    save_invoice_record, amount_to_words
-                )
-                num = get_next_invoice_number()
-                today = date.today()
-                pdf_bytes = generate_invoice_pdf(
-                    invoice_number=num,
-                    invoice_date=today,
-                    client_name=temp["client_name"],
-                    client_bin=temp["client_bin"],
-                    client_address=temp["client_address"],
-                    service_name=temp["service_name"],
-                    service_code=temp["service_code"],
-                    amount=amount,
-                )
-                save_invoice_record({
-                    "number": num,
-                    "date": today.isoformat(),
-                    "client": temp["client_name"],
-                    "amount": amount,
-                    "service": temp["service_name"],
-                })
-                fname = f"Счет_{num}_{temp['client_name'].replace(' ', '_')}.pdf"
-                from io import BytesIO
-                await update.message.reply_document(
-                    document=BytesIO(pdf_bytes),
-                    filename=fname,
-                    caption=f"🧾 Счёт №{num} | {temp['client_name']} | {amount:,.0f} ₸"
-                )
-            except Exception as e:
-                logger.error(f"Invoice generation error: {e}")
-                await update.message.reply_text(f"❌ Ошибка генерации счёта: {e}")
+            await _generate_and_send_invoice(update, temp)
         return
 
     # Режим расчёта KPI
