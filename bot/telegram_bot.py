@@ -726,13 +726,34 @@ async def _ceo_analyze(topic: str, context_data: str) -> str:
 async def _ceo_finance(update: Update):
     await update.message.reply_chat_action("typing")
     try:
-        from agents.finance_agent import _load, format_summary
-        data = _load()
-        summary = format_summary(data)
-        accounts_detail = json.dumps(data.get("accounts", {}), ensure_ascii=False, indent=2)
-        context_data = f"Текущие балансы:\n{summary}\n\nДетали счетов:\n{accounts_detail}"
-        result = await _ceo_analyze("Финансы — балансы счетов", context_data)
-        await send_long(update, f"💰 Финансовый анализ\n{'─'*30}\n\n{result}")
+        from agents.sales_agent import get_historical_two_years
+        from agents.invoice_agent import _load_invoices
+
+        sales_history = get_historical_two_years()
+
+        inv_data = _load_invoices()
+        invoices = inv_data.get("invoices", [])
+        inv_total = sum(float(i.get("amount", 0)) for i in invoices)
+        recent_invoices = invoices[-10:] if len(invoices) > 10 else invoices
+
+        kpi_file = Path(__file__).parent.parent / "data" / "kpi_plans.json"
+        kpi_block = ""
+        if kpi_file.exists():
+            with open(kpi_file, "r", encoding="utf-8") as f:
+                kpi_block = f"\nKPI планы:\n{json.dumps(json.load(f), ensure_ascii=False, indent=2)}"
+
+        context_data = (
+            f"=== ВЫРУЧКА ПРОЕКТОВ (история) ===\n{sales_history}\n\n"
+            f"=== ВЫСТАВЛЕННЫЕ СЧЕТА ===\n"
+            f"Всего: {len(invoices)}, общая сумма: {inv_total:,.0f} ₸\n"
+            f"Последние счета:\n{json.dumps(recent_invoices, ensure_ascii=False, indent=2)}"
+            f"{kpi_block}"
+        )
+        result = await _ceo_analyze(
+            "Финансы компании — выручка проектов Grants KZ, Tanda Bilim, Ekonomist Media, счета, KPI",
+            context_data,
+        )
+        await send_long(update, f"💰 Финансовый анализ компании\n{'─'*30}\n\n{result}")
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
