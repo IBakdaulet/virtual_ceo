@@ -724,20 +724,25 @@ async def cmd_ceo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _ceo_analyze(topic: str, context_data: str) -> str:
     """Отправляет данные в Claude и получает стратегический анализ."""
+    import asyncio
     import anthropic as _ant
-    client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    system = (
-        "Ты виртуальный CEO медиа-холдинга Kettik Group (Казахстан). "
-        "Анализируй данные кратко и по делу. Давай 3-5 конкретных советов "
-        "с цифрами и приоритетами. Пиши на русском, без воды."
-    )
-    resp = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=1500,
-        system=system,
-        messages=[{"role": "user", "content": f"Проанализируй данные и дай рекомендации.\n\nТема: {topic}\n\nДанные:\n{context_data}"}],
-    )
-    return resp.content[0].text
+
+    def _call():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        system = (
+            "Ты виртуальный CEO медиа-холдинга Kettik Group (Казахстан). "
+            "Анализируй данные кратко и по делу. Давай 3-5 конкретных советов "
+            "с цифрами и приоритетами. Пиши на русском, без воды."
+        )
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=1500,
+            system=system,
+            messages=[{"role": "user", "content": f"Проанализируй данные и дай рекомендации.\n\nТема: {topic}\n\nДанные:\n{context_data}"}],
+        )
+        return resp.content[0].text
+
+    return await asyncio.to_thread(_call)
 
 
 async def _ceo_finance(update: Update):
