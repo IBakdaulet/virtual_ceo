@@ -226,7 +226,7 @@ async def handle_salesperson_message(update: Update, context: ContextTypes.DEFAU
     # Продажник в режиме создания счёта
     inv = _load_invoice()
     if inv["active"]:
-        await handle_message(update, context)
+        await _handle_invoice_dialog(update)
         return
 
     if not conv.is_active():
@@ -592,6 +592,38 @@ async def _extract_invoice_data(text: str) -> dict | None:
         return None
 
 
+async def _handle_invoice_dialog(update: Update):
+    """Обрабатывает сообщения пользователя в режиме создания счёта."""
+    user_text = update.message.text.strip()
+    inv = _load_invoice()
+
+    if user_text.lower() in ["отмена", "стоп", "cancel"]:
+        _reset_invoice()
+        await update.message.reply_text("Отменено.")
+        return
+
+    step = inv["step"]
+    if step == "waiting_text":
+        await update.message.reply_chat_action("typing")
+        data = await _extract_invoice_data(user_text)
+        required = ["invoice_number", "client_name", "client_bin", "client_address", "service_name", "amount"]
+        if data and all(data.get(k) for k in required):
+            _reset_invoice()
+            await _generate_and_send_invoice(update, data)
+        else:
+            missing = []
+            if not data or not data.get("invoice_number"): missing.append("номер счёта")
+            if not data or not data.get("client_name"): missing.append("название клиента")
+            if not data or not data.get("client_bin"): missing.append("БИН")
+            if not data or not data.get("client_address"): missing.append("адрес")
+            if not data or not data.get("service_name"): missing.append("услуга")
+            if not data or not data.get("amount"): missing.append("сумма")
+            await update.message.reply_text(
+                f"Не хватает данных: {', '.join(missing)}\n\n"
+                f"Напиши ещё раз с полными данными или 'отмена'."
+            )
+
+
 async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Создание счёта — с текстом сразу или пошагово."""
     if not (is_owner(update) or is_salesperson(update)):
@@ -807,31 +839,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Режим создания счёта
     inv = _load_invoice()
     if inv["active"]:
-        if user_text.lower() in ["отмена", "стоп", "cancel"]:
-            _reset_invoice()
-            await update.message.reply_text("Отменено.")
-            return
-        step = inv["step"]
-
-        if step == "waiting_text":
-            await update.message.reply_chat_action("typing")
-            data = await _extract_invoice_data(user_text)
-            required = ["invoice_number", "client_name", "client_bin", "client_address", "service_name", "amount"]
-            if data and all(data.get(k) for k in required):
-                _reset_invoice()
-                await _generate_and_send_invoice(update, data)
-            else:
-                missing = []
-                if not data or not data.get("invoice_number"): missing.append("номер счёта")
-                if not data or not data.get("client_name"): missing.append("название клиента")
-                if not data or not data.get("client_bin"): missing.append("БИН")
-                if not data or not data.get("client_address"): missing.append("адрес")
-                if not data or not data.get("service_name"): missing.append("услуга")
-                if not data or not data.get("amount"): missing.append("сумма")
-                await update.message.reply_text(
-                    f"Не хватает данных: {', '.join(missing)}\n\n"
-                    f"Напиши ещё раз с полными данными или 'отмена'."
-                )
+        await _handle_invoice_dialog(update)
         return
 
     # Режим расчёта KPI
