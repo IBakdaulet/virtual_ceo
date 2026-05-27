@@ -285,14 +285,22 @@ def generate_invoice_pdf(
     story.append(p(f"Всего к оплате: {words}", bold=True))
     story.append(Spacer(1, 10*mm))
 
-    # Исполнитель
+    # Исполнитель + печать
+    stamp_path = FONT_DIR / "stamp_0_0.png"
+    if stamp_path.exists():
+        from reportlab.platypus import Image as RLImage
+        stamp = RLImage(str(stamp_path), width=30*mm, height=30*mm)
+    else:
+        stamp = p("")
+
     ex = [
-        [p("Исполнитель", bold=True), p(""), p(f"/{SUPPLIER['executor']}/")],
+        [p("Исполнитель", bold=True), stamp, p(f"/{SUPPLIER['executor']}/")],
     ]
     et = Table(ex, colWidths=[28*mm, 100*mm, 52*mm])
     et.setStyle(TableStyle([
         ('LINEBELOW', (1, 0), (1, 0), 0.5, colors.black),
         ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+        ('ALIGN', (1, 0), (1, 0), 'CENTER'),
     ]))
     story.append(et)
 
