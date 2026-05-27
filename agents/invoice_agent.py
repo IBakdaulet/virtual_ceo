@@ -131,8 +131,8 @@ def _ensure_fonts():
     """Скачивает DejaVu шрифты при первом запуске и регистрирует в reportlab."""
     FONT_DIR.mkdir(exist_ok=True)
     files = {
-        "DejaVuSans.ttf": "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf",
-        "DejaVuSans-Bold.ttf": "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf",
+        "DejaVuSans.ttf": "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf",
+        "DejaVuSans-Bold.ttf": "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf",
     }
     for fname, url in files.items():
         fpath = FONT_DIR / fname
