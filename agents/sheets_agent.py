@@ -10,6 +10,7 @@ from datetime import date
 import gspread
 
 SHEET_ID = "1aGY0-SIbVjFF4uqI8v6SaEmTp5WT2r9hnsjhaAlS9Qw"
+BALANCE_SHEET_ID = "1cbPpZLnPRrtlhKTdQSkzjsuzmkdbY3KUng7yN2uoZU8"
 
 PROJECTS_RU = {
     "grants_kz": "Grants KZ",
@@ -123,6 +124,34 @@ def populate_historical(year: int, months_data: dict):
     rows.append(["ИТОГО", totals[0], totals[1], totals[2], sum(totals)])
     ws.clear()
     ws.update("A1", rows)
+
+
+def append_balance_row(accounts: dict, usd_rate: float):
+    """Добавляет строку с балансами всех счетов в отдельную таблицу."""
+    gc = _get_client()
+    if not gc:
+        return
+    try:
+        sh = gc.open_by_key(BALANCE_SHEET_ID)
+        ws = _get_or_create_sheet(sh, "Балансы")
+
+        # Собираем данные
+        from datetime import datetime
+        row_data = {"Дата": datetime.now().strftime("%d.%m.%Y %H:%M")}
+        total_kzt = 0.0
+        for acc in accounts.values():
+            name = acc.get("name", "")
+            balance = acc.get("balance", 0)
+            currency = acc.get("currency", "KZT")
+            row_data[f"{name} ({currency})"] = balance
+            total_kzt += balance * usd_rate if currency == "USD" else balance
+        row_data["Итого KZT"] = round(total_kzt)
+
+        header = list(row_data.keys())
+        _ensure_header(ws, header)
+        ws.append_row(list(row_data.values()), value_input_option="USER_ENTERED")
+    except Exception as e:
+        print(f"[Sheets] append_balance_row error: {e}")
 
 
 def sync_historical_to_sheets():

@@ -3,6 +3,7 @@ Finance Agent — личный финансовый советник Ибакд�
 Хранит состояние счетов, анализирует расходы, ставит цели, даёт рекомендации.
 """
 
+import csv
 import json
 import os
 import anthropic
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 DATA_FILE = Path(__file__).parent.parent / "data" / "finance.json"
+BALANCE_HISTORY_FILE = Path(__file__).parent.parent / "data" / "balance_history.csv"
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 ACCOUNT_ALIASES = {
@@ -74,7 +76,33 @@ def _save(data: dict):
     data["last_updated"] = datetime.now().isoformat()
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    _append_balance_history(data)
+    try:
+        from agents.sheets_agent import append_balance_row
+        append_balance_row(data.get("accounts", {}), data.get("usd_to_kzt_rate", 1))
+    except Exception as e:
+        print(f"[Finance] Sheets sync error: {e}")
     _push_to_github(DATA_FILE, "data/finance.json")
+
+
+def _append_balance_history(data: dict):
+    accounts = data.get("accounts", {})
+    rate = data.get("usd_to_kzt_rate", 1)
+    row = {"дата": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    total_kzt = 0.0
+    for key, acc in accounts.items():
+        balance = acc.get("balance", 0)
+        currency = acc.get("currency", "KZT")
+        row[acc.get("name", key)] = balance
+        total_kzt += balance * rate if currency == "USD" else balance
+    row["Итого KZT"] = round(total_kzt)
+
+    file_exists = BALANCE_HISTORY_FILE.exists()
+    with open(BALANCE_HISTORY_FILE, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 def _push_to_github(file_path: Path, repo_path: str):
