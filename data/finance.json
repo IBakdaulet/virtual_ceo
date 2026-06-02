@@ -9,7 +9,7 @@
     "kaspi_deposit_usd": {
       "name": "Kaspi депозит USD",
       "currency": "USD",
-      "balance": 61900.0,
+      "balance": 59180.0,
       "type": "deposit",
       "rate_pct": 1,
       "duration": "12 мес",
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 488.09,
-  "last_updated": "2026-06-02T14:35:49.257918",
+  "last_updated": "2026-06-02T14:35:50.216752",
   "limits": {
     "daily": {},
     "weekly": {},
