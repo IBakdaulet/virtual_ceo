@@ -50,7 +50,7 @@
     "freedom_card": {
       "name": "Freedom карта",
       "currency": "KZT",
-      "balance": 12600.0,
+      "balance": 37000.0,
       "type": "card"
     }
   },
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 488.09,
-  "last_updated": "2026-06-02T14:35:53.938716",
+  "last_updated": "2026-06-02T14:41:30.214207",
   "limits": {
     "daily": {},
     "weekly": {},
