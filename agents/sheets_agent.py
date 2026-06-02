@@ -160,21 +160,15 @@ def append_balance_row(accounts: dict, usd_rate: float):
 
         all_data = ws.get_all_values()
 
-        if not all_data:
-            # Первая запись — создаём структуру с нуля
-            rows = [["Счёт", "Валюта", date_str]]
-            for name, currency, balance in acc_rows:
-                rows.append([name, currency, balance])
-            ws.update("A1", rows)
-        else:
-            # Добавляем новый столбец
-            next_col = len(all_data[0]) + 1
-            col_letter = chr(ord("A") + next_col - 1) if next_col <= 26 else f"A{chr(ord('A') + next_col - 27)}"
-            # Заголовок даты
-            ws.update_cell(1, next_col, date_str)
-            # Значения по строкам (строки 2..N)
-            for i, (_, _, balance) in enumerate(acc_rows):
-                ws.update_cell(i + 2, next_col, balance)
+        # Всегда обновляем A и B (названия и валюты)
+        name_col = [["Счёт", "Валюта"]] + [[name, currency] for name, currency, _ in acc_rows]
+        ws.update("A1", name_col)
+
+        # Определяем следующий свободный столбец (начиная с C)
+        next_col = max(len(all_data[0]) + 1, 3) if all_data else 3
+        ws.update_cell(1, next_col, date_str)
+        for i, (_, _, balance) in enumerate(acc_rows):
+            ws.update_cell(i + 2, next_col, balance)
     except Exception as e:
         print(f"[Sheets] append_balance_row error: {e}")
 
