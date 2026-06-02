@@ -127,29 +127,54 @@ def populate_historical(year: int, months_data: dict):
 
 
 def append_balance_row(accounts: dict, usd_rate: float):
-    """Добавляет строку с балансами всех счетов в отдельную таблицу."""
+    """
+    Добавляет новый столбец с датой — счета в строках, даты в столбцах.
+    Структура:
+      Строка 1: [Счёт, Валюта, дата1, дата2, ...]
+      Строка 2: [Kaspi карта, KZT, 201600, ...]
+      ...
+      Последняя: [Итого KZT, KZT, 24500000, ...]
+    """
     gc = _get_client()
     if not gc:
         return
     try:
+        from datetime import datetime
         sh = gc.open_by_key(BALANCE_SHEET_ID)
         ws = _get_or_create_sheet(sh, "Балансы")
 
-        # Собираем данные
-        from datetime import datetime
-        row_data = {"Дата": datetime.now().strftime("%d.%m.%Y %H:%M")}
+        date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+        # Считаем итог
         total_kzt = 0.0
         for acc in accounts.values():
-            name = acc.get("name", "")
             balance = acc.get("balance", 0)
             currency = acc.get("currency", "KZT")
-            row_data[f"{name} ({currency})"] = balance
             total_kzt += balance * usd_rate if currency == "USD" else balance
-        row_data["Итого KZT"] = round(total_kzt)
 
-        header = list(row_data.keys())
-        _ensure_header(ws, header)
-        ws.append_row(list(row_data.values()), value_input_option="USER_ENTERED")
+        # Строим список строк: [название, валюта, баланс]
+        acc_rows = []
+        for acc in accounts.values():
+            acc_rows.append([acc.get("name", ""), acc.get("currency", "KZT"), acc.get("balance", 0)])
+        acc_rows.append(["Итого KZT", "KZT", round(total_kzt)])
+
+        all_data = ws.get_all_values()
+
+        if not all_data:
+            # Первая запись — создаём структуру с нуля
+            rows = [["Счёт", "Валюта", date_str]]
+            for name, currency, balance in acc_rows:
+                rows.append([name, currency, balance])
+            ws.update("A1", rows)
+        else:
+            # Добавляем новый столбец
+            next_col = len(all_data[0]) + 1
+            col_letter = chr(ord("A") + next_col - 1) if next_col <= 26 else f"A{chr(ord('A') + next_col - 27)}"
+            # Заголовок даты
+            ws.update_cell(1, next_col, date_str)
+            # Значения по строкам (строки 2..N)
+            for i, (_, _, balance) in enumerate(acc_rows):
+                ws.update_cell(i + 2, next_col, balance)
     except Exception as e:
         print(f"[Sheets] append_balance_row error: {e}")
 
