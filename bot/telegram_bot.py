@@ -1102,7 +1102,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             import asyncio
             from agents.statement_parser import analyze_with_claude, extract_expenses_structured
-            parsed = {"pdf_b64": pending["pdf_b64"], "bank": pending.get("bank", "unknown")}
+            parsed = {"pdf_base64": pending["pdf_b64"], "bank": pending.get("bank", "unknown")}
 
             def _do_analysis():
                 analysis = analyze_with_claude(parsed, period=month_label)
@@ -1580,7 +1580,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await file.download_to_drive(tmp_path)
             from agents.statement_parser import parse_pdf
             parsed = parse_pdf(tmp_path)
-            _statement_pending_save(parsed["pdf_b64"], parsed["bank"])
+            _statement_pending_save(parsed["pdf_base64"], parsed["bank"])
         except Exception as e:
             await update.message.reply_text(f"Ошибка: {e}")
         finally:
