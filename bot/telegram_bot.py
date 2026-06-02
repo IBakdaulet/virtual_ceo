@@ -1106,7 +1106,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             def _do_analysis():
                 analysis = analyze_with_claude(parsed, period=month_label)
-                expenses = extract_expenses_structured(parsed, month_label)
+                expenses = extract_expenses_structured(analysis, month_label)
                 return analysis, expenses
 
             analysis, expenses = await asyncio.to_thread(_do_analysis)
@@ -1607,7 +1607,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Сохраняем структурированные данные в Google Sheets
         try:
-            expenses = extract_expenses_structured(parsed, caption)
+            expenses = extract_expenses_structured(analysis, caption)
             from agents.sheets_agent import append_expense_month
             append_expense_month(caption, expenses.get("categories", {}),
                                  expenses.get("total_expenses", 0), expenses.get("total_income", 0))

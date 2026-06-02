@@ -299,41 +299,39 @@ def analyze_with_claude(parsed: Dict, period: Optional[str] = None) -> str:
     return response.content[0].text
 
 
-def extract_expenses_structured(parsed: Dict, month_label: str) -> Dict:
-    """Извлекает структурированные данные расходов по категориям для Google Sheets."""
-    prompt = f"""Это банковская выписка за {month_label}.
+def extract_expenses_structured(analysis_text: str, month_label: str) -> Dict:
+    """Извлекает структурированные данные из текстового анализа выписки."""
+    prompt = f"""Вот текстовый анализ банковской выписки за {month_label}:
 
-Верни ТОЛЬКО JSON без пояснений:
+{analysis_text}
+
+На основе этого текста верни ТОЛЬКО JSON без пояснений и без markdown:
 {{
-  "total_income": <сумма всех поступлений в тенге>,
-  "total_expenses": <сумма всех расходов в тенге>,
+  "total_income": <число>,
+  "total_expenses": <число>,
   "categories": {{
-    "еда и рестораны": <сумма>,
-    "транспорт": <сумма>,
-    "развлечения": <сумма>,
-    "здоровье": <сумма>,
-    "одежда и шоппинг": <сумма>,
-    "образование": <сумма>,
-    "бизнес расходы": <сумма>,
-    "коммуналка": <сумма>,
-    "переводы": <сумма>,
-    "другое": <сумма>
+    "еда и рестораны": <число>,
+    "транспорт": <число>,
+    "развлечения": <число>,
+    "здоровье": <число>,
+    "одежда и шоппинг": <число>,
+    "образование": <число>,
+    "бизнес расходы": <число>,
+    "коммуналка": <число>,
+    "переводы": <число>,
+    "другое": <число>
   }}
 }}
 
-Только числа без символов валюты. Если категории нет — ставь 0."""
+Только цифры без пробелов, запятых и символов валюты. Если категории нет — ставь 0."""
 
     try:
         resp = client.messages.create(
             model="claude-opus-4-6",
-            max_tokens=1000,
-            messages=[{"role": "user", "content": [
-                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": parsed["pdf_base64"]}},
-                {"type": "text", "text": prompt}
-            ]}]
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}]
         )
         text = resp.content[0].text.strip()
-        # Вырезаем JSON из ответа
         start = text.find("{")
         end = text.rfind("}") + 1
         return json.loads(text[start:end])
