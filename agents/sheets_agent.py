@@ -173,6 +173,66 @@ def append_balance_row(accounts: dict, usd_rate: float):
         print(f"[Sheets] append_balance_row error: {e}")
 
 
+EXPENSE_ROWS = [
+    "Еда и рестораны", "Транспорт", "Развлечения", "Здоровье",
+    "Одежда и шоппинг", "Образование", "Бизнес расходы",
+    "Коммуналка", "Переводы", "Другое", "ИТОГО расходы", "ИТОГО доходы"
+]
+
+CATEGORY_MAP = {
+    "еда и рестораны": "Еда и рестораны",
+    "транспорт": "Транспорт",
+    "развлечения": "Развлечения",
+    "здоровье": "Здоровье",
+    "одежда и шоппинг": "Одежда и шоппинг",
+    "образование": "Образование",
+    "бизнес расходы": "Бизнес расходы",
+    "коммуналка": "Коммуналка",
+    "переводы": "Переводы",
+    "другое": "Другое",
+}
+
+
+def append_expense_month(month_label: str, categories: dict, total_expenses: float, total_income: float):
+    """
+    Добавляет столбец с расходами за месяц в лист «Расходы».
+    categories: {"еда и рестораны": 150000, "транспорт": 50000, ...}
+    """
+    gc = _get_client()
+    if not gc:
+        return
+    try:
+        sh = gc.open_by_key(BALANCE_SHEET_ID)
+        ws = _get_or_create_sheet(sh, "Расходы")
+        all_data = ws.get_all_values()
+
+        # Нормализуем категории
+        normalized = {}
+        for k, v in categories.items():
+            mapped = CATEGORY_MAP.get(k.lower().strip(), "Другое")
+            normalized[mapped] = normalized.get(mapped, 0) + v
+        normalized["ИТОГО расходы"] = total_expenses
+        normalized["ИТОГО доходы"] = total_income
+
+        if not all_data:
+            # Первая запись — создаём структуру
+            rows = [["Категория", month_label]]
+            for row_name in EXPENSE_ROWS:
+                rows.append([row_name, normalized.get(row_name, 0)])
+            ws.update("A1", rows)
+        else:
+            # Всегда обновляем колонку A с названиями
+            name_col = [["Категория"]] + [[r] for r in EXPENSE_ROWS]
+            ws.update("A1", name_col)
+            # Добавляем новый столбец
+            next_col = max(len(all_data[0]) + 1, 2)
+            ws.update_cell(1, next_col, month_label)
+            for i, row_name in enumerate(EXPENSE_ROWS):
+                ws.update_cell(i + 2, next_col, normalized.get(row_name, 0))
+    except Exception as e:
+        print(f"[Sheets] append_expense_month error: {e}")
+
+
 def sync_historical_to_sheets():
     """Синхронизирует весь historical_sales.json в Google Sheets."""
     from pathlib import Path

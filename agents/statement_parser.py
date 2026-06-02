@@ -299,6 +299,48 @@ def analyze_with_claude(parsed: Dict, period: Optional[str] = None) -> str:
     return response.content[0].text
 
 
+def extract_expenses_structured(parsed: Dict, month_label: str) -> Dict:
+    """Извлекает структурированные данные расходов по категориям для Google Sheets."""
+    prompt = f"""Это банковская выписка за {month_label}.
+
+Верни ТОЛЬКО JSON без пояснений:
+{{
+  "total_income": <сумма всех поступлений в тенге>,
+  "total_expenses": <сумма всех расходов в тенге>,
+  "categories": {{
+    "еда и рестораны": <сумма>,
+    "транспорт": <сумма>,
+    "развлечения": <сумма>,
+    "здоровье": <сумма>,
+    "одежда и шоппинг": <сумма>,
+    "образование": <сумма>,
+    "бизнес расходы": <сумма>,
+    "коммуналка": <сумма>,
+    "переводы": <сумма>,
+    "другое": <сумма>
+  }}
+}}
+
+Только числа без символов валюты. Если категории нет — ставь 0."""
+
+    try:
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": [
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": parsed["pdf_base64"]}},
+                {"type": "text", "text": prompt}
+            ]}]
+        )
+        text = resp.content[0].text.strip()
+        # Вырезаем JSON из ответа
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        return json.loads(text[start:end])
+    except Exception as e:
+        return {"total_income": 0, "total_expenses": 0, "categories": {}, "error": str(e)}
+
+
 def save_transactions(transactions: List[Dict]):
     """Сохраняет транзакции в finance.json для истории."""
     with open(DATA_FILE, "r", encoding="utf-8") as f:

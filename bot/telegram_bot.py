@@ -82,6 +82,7 @@ def _reset_invoice():
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 ANALYST_STATE_FILE = Path(__file__).parent.parent / "data" / "analyst_state.json"
 ANALYST_HISTORY_FILE = Path(__file__).parent.parent / "data" / "analyst_history.json"
+STATEMENT_PENDING_FILE = Path(__file__).parent.parent / "data" / "statement_pending.json"
 
 def _load_yearplan() -> dict:
     if YEARPLAN_FILE.exists():
@@ -115,6 +116,23 @@ def _analyst_load_history() -> list:
 def _analyst_save_history(history: list):
     with open(ANALYST_HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+
+def _statement_pending_save(pdf_b64: str, bank: str):
+    with open(STATEMENT_PENDING_FILE, "w", encoding="utf-8") as f:
+        json.dump({"pdf_b64": pdf_b64, "bank": bank}, f)
+
+def _statement_pending_load() -> dict:
+    if not STATEMENT_PENDING_FILE.exists():
+        return {}
+    try:
+        with open(STATEMENT_PENDING_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _statement_pending_clear():
+    if STATEMENT_PENDING_FILE.exists():
+        STATEMENT_PENDING_FILE.unlink()
 
 def _analyst_clear_history():
     with open(ANALYST_HISTORY_FILE, "w", encoding="utf-8") as f:
@@ -1075,6 +1093,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
 
+    # Ожидаем месяц для выписки
+    pending = _statement_pending_load()
+    if pending and pending.get("pdf_b64"):
+        month_label = user_text.strip()
+        _statement_pending_clear()
+        await update.message.reply_text(f"📊 Анализирую выписку за {month_label}...")
+        try:
+            import asyncio
+            from agents.statement_parser import analyze_with_claude, extract_expenses_structured
+            parsed = {"pdf_b64": pending["pdf_b64"], "bank": pending.get("bank", "unknown")}
+
+            def _do_analysis():
+                analysis = analyze_with_claude(parsed, period=month_label)
+                expenses = extract_expenses_structured(parsed, month_label)
+                return analysis, expenses
+
+            analysis, expenses = await asyncio.to_thread(_do_analysis)
+
+            try:
+                from agents.sheets_agent import append_expense_month
+                append_expense_month(month_label, expenses.get("categories", {}),
+                                     expenses.get("total_expenses", 0), expenses.get("total_income", 0))
+                sheets_note = "✅ Данные сохранены в таблицу расходов."
+            except Exception as se:
+                logger.error(f"[Sheets] expense: {se}")
+                sheets_note = "⚠️ Не удалось сохранить в таблицу."
+
+            bank = parsed["bank"].upper() if parsed["bank"] != "unknown" else "банк"
+            statement_analyses.append({"bank": bank, "period": month_label, "analysis": analysis})
+            await send_long(update, f"📊 {bank} — {month_label}\n{'─'*30}\n\n{analysis}\n\n{sheets_note}")
+        except Exception as e:
+            logger.error(f"[Statement] error: {e}")
+            await update.message.reply_text(f"Ошибка анализа: {e}")
+        return
+
     # Режим аналитика
     if _analyst_active():
         if user_text.lower() in ["стоп", "stop", "/analyst stop"]:
@@ -1514,6 +1567,28 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Поддерживаю только PDF выписки.")
         return
 
+    caption = update.message.caption or ""
+
+    # Если нет подписи — сохраняем PDF и спрашиваем месяц
+    if not caption:
+        await update.message.reply_text("📄 PDF получен. За какой месяц выписка? (например: Май 2026)")
+        tmp_path = None
+        try:
+            file = await context.bot.get_file(doc.file_id)
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp_path = tmp.name
+            await file.download_to_drive(tmp_path)
+            from agents.statement_parser import parse_pdf
+            parsed = parse_pdf(tmp_path)
+            _statement_pending_save(parsed["pdf_b64"], parsed["bank"])
+        except Exception as e:
+            await update.message.reply_text(f"Ошибка: {e}")
+        finally:
+            if tmp_path:
+                try: os.unlink(tmp_path)
+                except: pass
+        return
+
     count = len(statement_analyses) + 1
     await update.message.reply_text(f"📄 Выписка {count}: {doc.file_name}\nАнализирую...")
 
@@ -1524,21 +1599,29 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             tmp_path = tmp.name
         await file.download_to_drive(tmp_path)
 
-        from agents.statement_parser import parse_pdf, analyze_with_claude
+        from agents.statement_parser import parse_pdf, analyze_with_claude, extract_expenses_structured
 
-        caption = update.message.caption or ""
         parsed = parse_pdf(tmp_path)
         bank = parsed["bank"].upper() if parsed["bank"] != "unknown" else "банк"
-        analysis = analyze_with_claude(parsed, period=caption or None)
+        analysis = analyze_with_claude(parsed, period=caption)
+
+        # Сохраняем структурированные данные в Google Sheets
+        try:
+            expenses = extract_expenses_structured(parsed, caption)
+            from agents.sheets_agent import append_expense_month
+            append_expense_month(caption, expenses.get("categories", {}),
+                                 expenses.get("total_expenses", 0), expenses.get("total_income", 0))
+        except Exception as se:
+            logger.error(f"[Sheets] expense sync error: {se}")
 
         statement_analyses.append({
             "bank": bank,
-            "period": caption or doc.file_name,
+            "period": caption,
             "analysis": analysis
         })
 
-        header = f"📊 Выписка {count}: {bank}" + (f" ({caption})" if caption else "")
-        await send_long(update, f"{header}\n{'─'*30}\n\n{analysis}\n\n💡 Загружено: {len(statement_analyses)} шт. Напишите итог для общей картины.")
+        header = f"📊 Выписка {count}: {bank} ({caption})"
+        await send_long(update, f"{header}\n{'─'*30}\n\n{analysis}\n\n💡 Загружено: {len(statement_analyses)} шт. Данные сохранены в таблицу расходов.")
 
     except Exception as e:
         logger.error(f"Ошибка анализа: {e}")
