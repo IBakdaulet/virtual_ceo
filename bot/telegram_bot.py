@@ -1399,6 +1399,50 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     doc = update.message.document
     fname = doc.file_name.lower()
 
+    # Режим аналитика — читаем PDF и отправляем в диалог
+    if _analyst_active() and fname.endswith(".pdf"):
+        await update.message.reply_text(f"📄 Читаю PDF: {doc.file_name}...")
+        try:
+            import base64, anthropic as _ant, asyncio
+            file = await context.bot.get_file(doc.file_id)
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp_path = tmp.name
+            await file.download_to_drive(tmp_path)
+            with open(tmp_path, "rb") as f:
+                pdf_b64 = base64.standard_b64encode(f.read()).decode()
+            os.unlink(tmp_path)
+
+            caption = update.message.caption or "Проанализируй этот документ."
+
+            history = _analyst_load_history()
+            history.append({"role": "user", "content": [
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                {"type": "text", "text": caption}
+            ]})
+
+            await update.message.reply_chat_action("typing")
+
+            def _call():
+                client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+                biz_context = _build_analyst_context()
+                system = ANALYST_SYSTEM + f"\n\n--- АКТУАЛЬНЫЕ ДАННЫЕ ---\n{biz_context}"
+                resp = client.messages.create(
+                    model="claude-opus-4-6",
+                    max_tokens=2000,
+                    system=system,
+                    messages=history[-20:],
+                )
+                return resp.content[0].text
+
+            answer = await asyncio.to_thread(_call)
+            history.append({"role": "assistant", "content": answer})
+            _analyst_save_history(history)
+            await send_long(update, answer)
+        except Exception as e:
+            logger.error(f"[Analyst PDF] error: {e}")
+            await update.message.reply_text(f"❌ Ошибка при чтении PDF: {e}")
+        return
+
     # Режим годового планирования — принимаем любые файлы
     yp = _load_yearplan()
     if yp["active"]:
