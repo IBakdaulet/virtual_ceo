@@ -83,6 +83,7 @@ YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 ANALYST_STATE_FILE = Path(__file__).parent.parent / "data" / "analyst_state.json"
 ANALYST_HISTORY_FILE = Path(__file__).parent.parent / "data" / "analyst_history.json"
 STATEMENT_PENDING_FILE = Path(__file__).parent.parent / "data" / "statement_pending.json"
+TOWORD_STATE_FILE = Path(__file__).parent.parent / "data" / "toword_state.json"
 
 def _load_yearplan() -> dict:
     if YEARPLAN_FILE.exists():
@@ -116,6 +117,15 @@ def _analyst_load_history() -> list:
 def _analyst_save_history(history: list):
     with open(ANALYST_HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+
+def _toword_active() -> bool:
+    return TOWORD_STATE_FILE.exists()
+
+def _toword_set(value: bool):
+    if value:
+        TOWORD_STATE_FILE.write_text("1")
+    elif TOWORD_STATE_FILE.exists():
+        TOWORD_STATE_FILE.unlink()
 
 def _statement_pending_save(pdf_b64: str, bank: str):
     with open(STATEMENT_PENDING_FILE, "w", encoding="utf-8") as f:
@@ -733,6 +743,105 @@ async def _handle_invoice_dialog(update: Update):
             )
 
 
+async def _make_word_from_text(text: str, filename: str = "document.docx") -> BytesIO:
+    """Создаёт Word файл из текста."""
+    from docx import Document
+    from docx.shared import Pt
+    doc = Document()
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            doc.add_paragraph()
+            continue
+        if line.startswith("# "):
+            doc.add_heading(line[2:], level=1)
+        elif line.startswith("## "):
+            doc.add_heading(line[3:], level=2)
+        elif line.startswith("### "):
+            doc.add_heading(line[4:], level=3)
+        else:
+            doc.add_paragraph(line)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+async def _extract_text_from_pdf_for_word(pdf_bytes: bytes) -> str:
+    """Извлекает текст из PDF через Claude."""
+    import base64, anthropic as _ant, asyncio
+    pdf_b64 = base64.standard_b64encode(pdf_bytes).decode()
+    def _call():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": [
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                {"type": "text", "text": "Извлеки весь текст из этого документа. Сохрани структуру: заголовки обозначь через # ## ###, абзацы — пустой строкой. Только текст, без комментариев."}
+            ]}]
+        )
+        return resp.content[0].text
+    return await asyncio.to_thread(_call)
+
+
+async def _extract_text_from_image_for_word(image_bytes: bytes, mime: str = "image/jpeg") -> str:
+    """Извлекает текст из изображения через Claude vision."""
+    import base64, anthropic as _ant, asyncio
+    img_b64 = base64.standard_b64encode(image_bytes).decode()
+    def _call():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": mime, "data": img_b64}},
+                {"type": "text", "text": "Извлеки весь текст с этого изображения. Сохрани структуру: заголовки обозначь через # ## ###, абзацы — пустой строкой. Только текст, без комментариев."}
+            ]}]
+        )
+        return resp.content[0].text
+    return await asyncio.to_thread(_call)
+
+
+async def cmd_toword(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Включает режим конвертации PDF/фото → Word."""
+    if not is_owner(update):
+        return
+    _toword_set(True)
+    await update.message.reply_text(
+        "📄 Режим конвертации включён.\n\n"
+        "Отправь PDF или фото документа — верну готовый Word файл.\n"
+        "/toword stop — выйти."
+    )
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает фото — конвертирует в Word если режим активен."""
+    if not is_owner(update):
+        return
+    if not _toword_active():
+        return
+    _toword_set(False)
+    await update.message.reply_chat_action("upload_document")
+    try:
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = tmp.name
+        await file.download_to_drive(tmp_path)
+        with open(tmp_path, "rb") as f:
+            image_bytes = f.read()
+        os.unlink(tmp_path)
+        await update.message.reply_text("🔍 Читаю текст с фото...")
+        text = await _extract_text_from_image_for_word(image_bytes)
+        fname = "document.docx"
+        word_buf = await _make_word_from_text(text, fname)
+        await update.message.reply_document(document=word_buf, filename=fname, caption="✅ Word файл готов")
+    except Exception as e:
+        logger.error(f"[toword photo] {e}")
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Создание счёта — с текстом сразу или пошагово."""
     if not (is_owner(update) or is_salesperson(update)):
@@ -1093,6 +1202,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
 
+    # Режим toword — стоп
+    if _toword_active() and user_text.lower() in ["стоп", "stop", "/toword stop"]:
+        _toword_set(False)
+        await update.message.reply_text("Режим конвертации выключен.")
+        return
+
     # Ожидаем месяц для выписки
     pending = _statement_pending_load()
     if pending and pending.get("pdf_b64"):
@@ -1452,6 +1567,32 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     doc = update.message.document
     fname = doc.file_name.lower()
 
+    # Режим toword — конвертируем PDF в Word
+    if _toword_active() and fname.endswith(".pdf"):
+        _toword_set(False)
+        await update.message.reply_chat_action("upload_document")
+        tmp_path = None
+        try:
+            file = await context.bot.get_file(doc.file_id)
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp_path = tmp.name
+            await file.download_to_drive(tmp_path)
+            with open(tmp_path, "rb") as f:
+                pdf_bytes = f.read()
+            await update.message.reply_text("🔍 Читаю текст из PDF...")
+            text = await _extract_text_from_pdf_for_word(pdf_bytes)
+            fname_out = doc.file_name.replace(".pdf", ".docx")
+            word_buf = await _make_word_from_text(text, fname_out)
+            await update.message.reply_document(document=word_buf, filename=fname_out, caption="✅ Word файл готов")
+        except Exception as e:
+            logger.error(f"[toword pdf] {e}")
+            await update.message.reply_text(f"❌ Ошибка: {e}")
+        finally:
+            if tmp_path:
+                try: os.unlink(tmp_path)
+                except: pass
+        return
+
     # Режим аналитика — читаем PDF и отправляем в диалог
     if _analyst_active() and fname.endswith(".pdf"):
         await update.message.reply_text(f"📄 Читаю PDF: {doc.file_name}...")
@@ -1807,9 +1948,11 @@ def main() -> None:
     app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
     app.add_handler(CommandHandler("invoice", cmd_invoice))
     app.add_handler(CommandHandler("analyst", cmd_analyst))
+    app.add_handler(CommandHandler("toword", cmd_toword))
     app.add_handler(CommandHandler("ceo", cmd_ceo))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
