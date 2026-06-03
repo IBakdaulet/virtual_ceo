@@ -85,6 +85,7 @@ ANALYST_STATE_FILE = Path(__file__).parent.parent / "data" / "analyst_state.json
 ANALYST_HISTORY_FILE = Path(__file__).parent.parent / "data" / "analyst_history.json"
 STATEMENT_PENDING_FILE = Path(__file__).parent.parent / "data" / "statement_pending.json"
 TOWORD_STATE_FILE = Path(__file__).parent.parent / "data" / "toword_state.json"
+BRIEF_STATE_FILE = Path(__file__).parent.parent / "data" / "brief_state.json"
 
 def _load_yearplan() -> dict:
     if YEARPLAN_FILE.exists():
@@ -127,6 +128,15 @@ def _toword_set(value: bool):
         TOWORD_STATE_FILE.write_text("1")
     elif TOWORD_STATE_FILE.exists():
         TOWORD_STATE_FILE.unlink()
+
+def _brief_active() -> bool:
+    return BRIEF_STATE_FILE.exists()
+
+def _brief_set(value: bool):
+    if value:
+        BRIEF_STATE_FILE.write_text("1")
+    elif BRIEF_STATE_FILE.exists():
+        BRIEF_STATE_FILE.unlink()
 
 def _statement_pending_save(pdf_b64: str, bank: str):
     with open(STATEMENT_PENDING_FILE, "w", encoding="utf-8") as f:
@@ -744,6 +754,92 @@ async def _handle_invoice_dialog(update: Update):
             )
 
 
+async def _generate_ad_from_brief(brief_text: str) -> str:
+    """Генерирует рекламный контент на основе заполненного брифа."""
+    import anthropic as _ant, asyncio
+    prompt = f"""Ты — опытный SMM-копирайтер медиапроекта Grants KZ (зарубежные гранты и стипендии для казахстанцев, аудитория 18-30 лет).
+
+Клиент заполнил рекламный бриф. Вот его содержимое:
+
+{brief_text}
+
+На основе брифа создай рекламный пакет:
+
+---
+📸 INSTAGRAM ПОСТ
+(эмодзи, живой язык, обращение на «ты», хук в первых 2 строках, хэштеги в конце)
+
+---
+✈️ TELEGRAM ПОСТ
+(без хэштегов, чуть более информационный, но живой, эмодзи уместно)
+
+---
+🎯 3 ВАРИАНТА ХУКА
+(цепляющие первые строки — выбери лучший)
+
+---
+📣 CTA БЛОК
+(призыв к действию согласно брифу)
+
+---
+
+Учти формат контента, тон, целевую аудиторию и цели из брифа. Пиши на русском языке."""
+
+    def _call():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return resp.content[0].text
+    return await asyncio.to_thread(_call)
+
+
+async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Активирует режим генерации рекламы по брифу."""
+    if not is_owner(update):
+        return
+    args = context.args
+    if args and args[0].lower() == "stop":
+        _brief_set(False)
+        await update.message.reply_text("Режим брифа выключен.")
+        return
+    _brief_set(True)
+    await update.message.reply_text(
+        "📋 Режим брифа включён.\n\n"
+        "Отправь фото или PDF заполненного брифа — сгенерирую рекламные тексты для Instagram и Telegram.\n\n"
+        "/brief stop — выйти."
+    )
+
+
+async def _process_brief_file(update: Update, brief_content_blocks: list) -> None:
+    """Извлекает текст брифа и генерирует рекламный контент."""
+    import anthropic as _ant, asyncio
+    _brief_set(False)
+    await update.message.reply_text("📋 Читаю бриф...")
+
+    def _extract():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": brief_content_blocks + [
+                {"type": "text", "text": "Извлеки все заполненные поля брифа в виде структурированного текста. Формат: Поле: Значение. Пропусти пустые поля."}
+            ]}]
+        )
+        return resp.content[0].text
+
+    try:
+        brief_text = await asyncio.to_thread(_extract)
+        await update.message.reply_text("✍️ Генерирую рекламные тексты...")
+        ad_content = await _generate_ad_from_brief(brief_text)
+        await send_long(update, ad_content)
+    except Exception as e:
+        logger.error(f"[Brief] error: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def _make_word_from_text(text: str, filename: str = "document.docx") -> BytesIO:
     """Создаёт Word файл из текста."""
     from docx import Document
@@ -820,6 +916,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Обрабатывает фото — конвертирует в Word если режим активен."""
     if not is_owner(update):
         return
+    # Режим брифа — фото брифа
+    if _brief_active():
+        try:
+            import base64
+            photo = update.message.photo[-1]
+            file = await context.bot.get_file(photo.file_id)
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp_path = tmp.name
+            await file.download_to_drive(tmp_path)
+            with open(tmp_path, "rb") as f:
+                img_b64 = base64.standard_b64encode(f.read()).decode()
+            os.unlink(tmp_path)
+            blocks = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}}]
+            await _process_brief_file(update, blocks)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
+        return
+
     if not _toword_active():
         return
     _toword_set(False)
@@ -1568,6 +1682,27 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     doc = update.message.document
     fname = doc.file_name.lower()
 
+    # Режим брифа — PDF брифа
+    if _brief_active() and fname.endswith(".pdf"):
+        tmp_path = None
+        try:
+            import base64
+            file = await context.bot.get_file(doc.file_id)
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp_path = tmp.name
+            await file.download_to_drive(tmp_path)
+            with open(tmp_path, "rb") as f:
+                pdf_b64 = base64.standard_b64encode(f.read()).decode()
+            blocks = [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}}]
+            await _process_brief_file(update, blocks)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
+        finally:
+            if tmp_path:
+                try: os.unlink(tmp_path)
+                except: pass
+        return
+
     # Режим toword — конвертируем PDF в Word
     if _toword_active() and fname.endswith(".pdf"):
         _toword_set(False)
@@ -1950,6 +2085,7 @@ def main() -> None:
     app.add_handler(CommandHandler("invoice", cmd_invoice))
     app.add_handler(CommandHandler("analyst", cmd_analyst))
     app.add_handler(CommandHandler("toword", cmd_toword))
+    app.add_handler(CommandHandler("brief", cmd_brief))
     app.add_handler(CommandHandler("ceo", cmd_ceo))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
