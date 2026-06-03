@@ -768,34 +768,95 @@ async def _handle_invoice_dialog(update: Update):
 
 
 async def _scrape_client_page(url: str) -> str:
-    """Скрапит страницу клиента и возвращает текст для анализа."""
-    import aiohttp
+    """Скрапит страницу клиента — Telegram/Instagram/сайт. Возвращает тексты постов."""
+    import aiohttp, re
     from html.parser import HTMLParser
 
+    url = url.strip().rstrip("/")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    # ── Telegram канал ──────────────────────────────────────────────
+    tg_match = re.match(r"(?:https?://)?(?:t\.me|telegram\.me)/([^/?]+)", url)
+    if tg_match:
+        channel = tg_match.group(1).lstrip("@")
+        posts = []
+        # Telegram web-view поддерживает пагинацию через before=<msg_id>
+        before = None
+        async with aiohttp.ClientSession(headers=headers) as session:
+            for _ in range(3):  # 3 страницы ~60 постов
+                page_url = f"https://t.me/s/{channel}"
+                if before:
+                    page_url += f"?before={before}"
+                try:
+                    async with session.get(page_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        html = await resp.text(errors="ignore")
+                except Exception:
+                    break
+                # Извлекаем тексты постов из <div class="tgme_widget_message_text">
+                found = re.findall(r'class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+                for f in found:
+                    clean = re.sub(r"<[^>]+>", "", f).strip()
+                    if clean:
+                        posts.append(clean)
+                # Находим наименьший message id для пагинации
+                ids = re.findall(r'data-post="\S+/(\d+)"', html)
+                if ids:
+                    before = min(int(i) for i in ids)
+                else:
+                    break
+        if posts:
+            posts = list(dict.fromkeys(posts))  # убираем дубли
+            return f"Telegram канал @{channel}. Последние посты:\n\n" + "\n\n---\n\n".join(posts[-50:])
+        return f"Telegram канал @{channel}: не удалось извлечь посты (возможно, канал закрытый)."
+
+    # ── Instagram ────────────────────────────────────────────────────
+    ig_match = re.match(r"(?:https?://)?(?:www\.)?instagram\.com/([^/?]+)", url)
+    if ig_match:
+        username = ig_match.group(1).rstrip("/")
+        # Instagram блокирует боты, пробуем получить bio и описание страницы
+        try:
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get(f"https://www.instagram.com/{username}/", timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    html = await resp.text(errors="ignore")
+            # Ищем JSON в meta-тегах
+            desc = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html)
+            og_desc = re.search(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
+            title = re.search(r'<title>([^<]+)</title>', html)
+            parts = []
+            if title: parts.append(f"Страница: {title.group(1)}")
+            if desc: parts.append(f"Описание: {desc.group(1)}")
+            if og_desc: parts.append(f"OG описание: {og_desc.group(1)}")
+            if parts:
+                return f"Instagram @{username}.\n" + "\n".join(parts) + \
+                       "\n\n⚠️ Instagram ограничивает парсинг. Для глубокого анализа добавь несколько текстов постов вручную на следующем шаге."
+        except Exception:
+            pass
+        return f"Instagram @{username}: не удалось загрузить (Instagram блокирует боты). Добавь тексты постов вручную на следующем шаге."
+
+    # ── Обычный сайт ─────────────────────────────────────────────────
     class TextExtractor(HTMLParser):
         def __init__(self):
             super().__init__()
-            self.texts = []
-            self.skip = False
+            self.texts, self.skip = [], False
         def handle_starttag(self, tag, attrs):
-            if tag in ("script", "style", "nav", "footer"):
+            if tag in ("script", "style", "nav", "footer", "head"):
                 self.skip = True
         def handle_endtag(self, tag):
-            if tag in ("script", "style", "nav", "footer"):
+            if tag in ("script", "style", "nav", "footer", "head"):
                 self.skip = False
         def handle_data(self, data):
             if not self.skip and data.strip():
                 self.texts.append(data.strip())
-
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; bot/1.0)"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 html = await resp.text(errors="ignore")
         parser = TextExtractor()
         parser.feed(html)
         text = " ".join(parser.texts)
-        return text[:4000] if text else "Не удалось извлечь текст со страницы."
+        return text[:5000] if text else "Не удалось извлечь текст."
     except Exception as e:
         return f"Не удалось загрузить страницу: {e}"
 
@@ -812,14 +873,15 @@ async def _analyze_client_profile(url: str, page_text: str) -> str:
 
 {page_text}
 
-Составь краткий портрет:
-- Ниша и продукт
-- Tone of voice (как общаются с аудиторией)
-- Стиль контента (серьёзный/живой/юморной)
-- Целевая аудитория (кто их подписчики)
-- Ключевые темы и ценности
+На основе последних постов составь портрет клиента:
+- Ниша и продукт/услуга
+- Tone of voice (формальный/дружелюбный/экспертный/юморной)
+- Стиль текстов (длина, структура, эмодзи, обращение)
+- Целевая аудитория (кто их читатели)
+- Ключевые темы и ценности бренда
+- Что они НЕ публикуют (чего избегать в рекламе)
 
-Максимум 200 слов."""}]
+Максимум 250 слов."""}]
         )
         return resp.content[0].text
     return await asyncio.to_thread(_call)
