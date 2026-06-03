@@ -9,6 +9,7 @@ import json
 import logging
 import tempfile
 from datetime import datetime, time, date
+from io import BytesIO
 from pathlib import Path
 
 import pytz
