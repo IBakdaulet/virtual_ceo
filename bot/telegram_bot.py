@@ -851,12 +851,12 @@ async def _scrape_client_page(url: str) -> str:
                 self.texts.append(data.strip())
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                 html = await resp.text(errors="ignore")
         parser = TextExtractor()
         parser.feed(html)
         text = " ".join(parser.texts)
-        return text[:5000] if text else "Не удалось извлечь текст."
+        return text[:3000] if text else "Не удалось извлечь текст."
     except Exception as e:
         return f"Не удалось загрузить страницу: {e}"
 
@@ -893,7 +893,7 @@ async def _generate_ad_from_brief(brief_text: str, client_profile: str = "", cli
 
     context_parts = []
     if client_profile:
-        context_parts.append(f"ПОРТРЕТ КЛИЕНТА (из его страницы):\n{client_profile}")
+        context_parts.append(f"КОНТЕНТ СО СТРАНИЦЫ КЛИЕНТА (изучи стиль, тон, аудиторию):\n{client_profile}")
     if client_text:
         context_parts.append(f"ГОТОВЫЙ ТЕКСТ ОТ КЛИЕНТА:\n{client_text}")
     context_parts.append(f"ЗАПОЛНЕННЫЙ БРИФ:\n{brief_text}")
@@ -1472,7 +1472,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             await update.message.reply_text("🔍 Изучаю страницу клиента...")
             page_text = await _scrape_client_page(user_text.strip())
-            brief_state["client_profile"] = await _analyze_client_profile(user_text.strip(), page_text)
+            brief_state["client_profile"] = page_text  # анализ объединён с генерацией
         brief_state["step"] = "waiting_client_text"
         _brief_save(brief_state)
         await update.message.reply_text(
