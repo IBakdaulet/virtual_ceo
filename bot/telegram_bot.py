@@ -857,37 +857,35 @@ async def _generate_ad_from_brief(brief_text: str, client_profile: str = "", cli
 
     context_parts = []
     if client_profile:
-        context_parts.append(f"КОНТЕНТ СО СТРАНИЦЫ КЛИЕНТА (изучи стиль, тон, аудиторию):\n{client_profile}")
+        context_parts.append(f"ОПИСАНИЕ КОМПАНИИ:\n{client_profile}")
     if client_text:
         context_parts.append(f"ГОТОВЫЙ ТЕКСТ ОТ КЛИЕНТА:\n{client_text}")
     context_parts.append(f"ЗАПОЛНЕННЫЙ БРИФ:\n{brief_text}")
     full_context = "\n\n---\n\n".join(context_parts)
 
-    prompt = f"""Ты — опытный SMM-копирайтер медиапроекта Grants KZ (зарубежные гранты и стипендии для казахстанцев, аудитория 18-30 лет).
+    prompt = f"""Ты — SMM-копирайтер Grants KZ (зарубежные гранты для казахстанцев, 18–30 лет).
 
 {full_context}
 
-На основе всей информации создай рекламный пакет:
+СТИЛЬ GRANTS KZ:
+- Хук с первой строки, ключевые слова (грант, стипендия, сумма)
+- Конкретные цифры всегда
+- Заголовок: вопрос или «Как...», без точки в конце
+- Instagram: хук + тело + CTA + сайт без https + «ссылка в сторис/телеграм» + хэштеги
+- Telegram: без хэштегов, ссылка вшита в anchor text
+- Без клише и ИИ-оборотов
 
+Создай:
 ---
 📸 INSTAGRAM ПОСТ
-(эмодзи, живой язык, обращение на «ты», хук в первых 2 строках, хэштеги в конце)
-
 ---
 ✈️ TELEGRAM ПОСТ
-(без хэштегов, чуть более информационный, но живой, эмодзи уместно)
-
 ---
-🎯 3 ВАРИАНТА ХУКА
-(цепляющие первые строки — выбери лучший)
-
+🎯 3 ВАРИАНТА ЗАГОЛОВКА ДЛЯ ОБЛОЖКИ
 ---
 📣 CTA БЛОК
-(призыв к действию согласно брифу)
-
 ---
-
-Учти стиль клиента, тон брифа и целевую аудиторию. Пиши на русском языке."""
+Пиши на русском языке."""
 
     def _call():
         client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -909,12 +907,11 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         _brief_clear()
         await update.message.reply_text("Режим брифа выключен.")
         return
-    _brief_save({"step": "waiting_url", "client_profile": "", "client_text": ""})
+    _brief_save({"step": "waiting_company_info", "company_info": "", "client_text": ""})
     await update.message.reply_text(
         "📋 Создаём рекламу по брифу.\n\n"
-        "Шаг 1/3: Отправь 2-5 ссылок на публикации клиента (каждая на новой строке) — изучу стиль и тон их контента.\n\n"
-        "Поддерживаются: Instagram посты, Telegram посты, страницы сайта.\n\n"
-        "Если ссылок нет — напиши *пропустить*.",
+        "Шаг 1/2: Отправь описание компании клиента — чем занимаются, какая аудитория, особенности.\n\n"
+        "Если нет — напиши *пропустить*.",
         parse_mode="Markdown"
     )
 
@@ -926,39 +923,57 @@ async def _process_brief_file(update: Update, brief_content_blocks: list) -> Non
     _brief_clear()
     await update.message.reply_text("📋 Читаю бриф и генерирую тексты...")
 
-    client_profile = state.get("client_profile", "")
+    company_info = state.get("company_info", "")
     client_text = state.get("client_text", "")
 
     context_parts = []
-    if client_profile:
-        context_parts.append(f"ПУБЛИКАЦИИ КЛИЕНТА (изучи стиль, тон, аудиторию):\n{client_profile}")
+    if company_info:
+        context_parts.append(f"ОПИСАНИЕ КОМПАНИИ КЛИЕНТА:\n{company_info}")
     if client_text:
-        context_parts.append(f"ГОТОВЫЙ ТЕКСТ ОТ КЛИЕНТА:\n{client_text}")
-    extra_context = "\n\n---\n\n".join(context_parts)
+        context_parts.append(f"ГОТОВЫЙ ТЕКСТ ОТ КЛИЕНТА (адаптируй его под наш стиль):\n{client_text}")
+    extra_context = ("\n\n---\n\n".join(context_parts) + "\n\n---\n\n") if context_parts else ""
 
-    generation_prompt = f"""Ты — SMM-копирайтер Grants KZ (зарубежные гранты для казахстанцев, 18-30 лет).
-{extra_context}
+    generation_prompt = f"""Ты — SMM-копирайтер медиапроекта Grants KZ (зарубежные гранты, стипендии и образование за рубежом для казахстанцев, аудитория 18–30 лет).
 
-Ниже — заполненный рекламный бриф. Прочитай его и сразу создай рекламный пакет:
+{extra_context}СТИЛЬ GRANTS KZ — СТРОГО СОБЛЮДАЙ:
+
+ОБЛОЖКА/ЗАГОЛОВОК:
+- Минимум 1 ключевое слово: грант, стипендия, стажировка, сумма ($10 000 и т.д.)
+- Вопросительный или интригующий заголовок: «Как получить...», «Знаешь ли ты...»
+- Точку в конце НЕ ставить, можно «?» или «:»
+
+INSTAGRAM ПОСТ:
+- Первая строка = хук с ключевым словом (люди видят только её в ленте)
+- Не повторять заголовок обложки
+- Конкретные цифры: суммы грантов, количество мест, сроки
+- В конце: CTA + сайт без https + «ссылка в сторис и в телеграм-канале»
+- Хэштеги в самом конце
+
+TELEGRAM ПОСТ:
+- Картинка как обложка с текстом
+- Ссылку вшить в текст с anchor text
+- Кнопка с текстом ссылки (если через бот)
+- Без хэштегов, информационный стиль
+
+ПРИМЕРЫ ХУКОВ ИЗ НАШИХ ПОСТОВ:
+«Не только ЕНТ: теперь гранты получают и за спортивный потенциал»
+«В 19 лет поступил в Испанию, хотя когда-то просто пришёл учить язык»
+«Школьники Астаны получили грант 5 млн тенге и поступили в топ-вузы мира»
+«Как всего за $20 подать в 500 вузов мира?»
+
+Ниже — заполненный рекламный бриф. Прочитай его и создай:
 
 ---
 📸 INSTAGRAM ПОСТ
-(эмодзи, обращение на «ты», хук в первых 2 строках, хэштеги в конце)
-
 ---
 ✈️ TELEGRAM ПОСТ
-(без хэштегов, живой стиль, эмодзи уместно)
-
 ---
-🎯 3 ВАРИАНТА ХУКА
-(цепляющие первые строки)
-
+🎯 3 ВАРИАНТА ЗАГОЛОВКА ДЛЯ ОБЛОЖКИ
 ---
-📣 CTA БЛОК
-(призыв к действию из брифа)
-
+📣 CTA БЛОК (конкретный призыв из брифа)
 ---
-Пиши на русском языке. Учитывай стиль клиента из публикаций выше."""
+
+Пиши на русском языке. Без клише и «ИИ-оборотов»."""
 
     def _one_call():
         client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -1458,22 +1473,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Многошаговый режим брифа
     brief_state = _brief_load()
-    if brief_state.get("step") == "waiting_url":
+    if brief_state.get("step") == "waiting_company_info":
         skip = user_text.lower() in ["пропустить", "пропусти", "skip", "-"]
-        if skip:
-            brief_state["client_profile"] = ""
-        else:
-            urls = [u.strip() for u in user_text.strip().splitlines() if u.strip().startswith("http")]
-            if not urls:
-                await update.message.reply_text("Не нашёл ссылок. Отправь ссылки начинающиеся с http, каждую на новой строке. Или напиши *пропустить*.", parse_mode="Markdown")
-                return
-            await update.message.reply_text(f"🔍 Читаю {len(urls)} публикаци{'ю' if len(urls)==1 else 'и'}...")
-            brief_state["client_profile"] = await _scrape_post_urls(urls)
+        brief_state["company_info"] = "" if skip else user_text.strip()
         brief_state["step"] = "waiting_client_text"
         _brief_save(brief_state)
         await update.message.reply_text(
-            "Шаг 2/3: Есть готовый текст от клиента? Отправь его сюда.\n\n"
-            "Если нет — напиши *пропустить*.",
+            "Шаг 2/2: Есть готовый текст от клиента для поста? Отправь его сюда.\n\n"
+            "Если нет — напиши *пропустить*, и я сам составлю текст из брифа.",
             parse_mode="Markdown"
         )
         return
@@ -1484,11 +1491,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         brief_state["step"] = "waiting_brief"
         _brief_save(brief_state)
         await update.message.reply_text(
-            "Шаг 3/3: Отправь заполненный бриф — фото или PDF."
+            "Отправь заполненный бриф — фото или PDF."
         )
         return
 
-    if brief_state.get("step") in ["waiting_brief"] and user_text.lower() in ["стоп", "stop", "/brief stop"]:
+    if brief_state.get("step") == "waiting_brief" and user_text.lower() in ["стоп", "stop", "/brief stop"]:
         _brief_clear()
         await update.message.reply_text("Режим брифа выключен.")
         return
