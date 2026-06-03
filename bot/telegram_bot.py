@@ -129,14 +129,27 @@ def _toword_set(value: bool):
     elif TOWORD_STATE_FILE.exists():
         TOWORD_STATE_FILE.unlink()
 
+def _brief_load() -> dict:
+    if not BRIEF_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(BRIEF_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _brief_save(data: dict):
+    BRIEF_STATE_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+def _brief_clear():
+    if BRIEF_STATE_FILE.exists():
+        BRIEF_STATE_FILE.unlink()
+
 def _brief_active() -> bool:
-    return BRIEF_STATE_FILE.exists()
+    return bool(_brief_load().get("step"))
 
 def _brief_set(value: bool):
-    if value:
-        BRIEF_STATE_FILE.write_text("1")
-    elif BRIEF_STATE_FILE.exists():
-        BRIEF_STATE_FILE.unlink()
+    if not value:
+        _brief_clear()
 
 def _statement_pending_save(pdf_b64: str, bank: str):
     with open(STATEMENT_PENDING_FILE, "w", encoding="utf-8") as f:
@@ -754,16 +767,81 @@ async def _handle_invoice_dialog(update: Update):
             )
 
 
-async def _generate_ad_from_brief(brief_text: str) -> str:
-    """Генерирует рекламный контент на основе заполненного брифа."""
+async def _scrape_client_page(url: str) -> str:
+    """Скрапит страницу клиента и возвращает текст для анализа."""
+    import aiohttp
+    from html.parser import HTMLParser
+
+    class TextExtractor(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.texts = []
+            self.skip = False
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style", "nav", "footer"):
+                self.skip = True
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "nav", "footer"):
+                self.skip = False
+        def handle_data(self, data):
+            if not self.skip and data.strip():
+                self.texts.append(data.strip())
+
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; bot/1.0)"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                html = await resp.text(errors="ignore")
+        parser = TextExtractor()
+        parser.feed(html)
+        text = " ".join(parser.texts)
+        return text[:4000] if text else "Не удалось извлечь текст со страницы."
+    except Exception as e:
+        return f"Не удалось загрузить страницу: {e}"
+
+
+async def _analyze_client_profile(url: str, page_text: str) -> str:
+    """Анализирует контент страницы и составляет портрет клиента."""
     import anthropic as _ant, asyncio
+    def _call():
+        client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": f"""Проанализируй страницу клиента ({url}):
+
+{page_text}
+
+Составь краткий портрет:
+- Ниша и продукт
+- Tone of voice (как общаются с аудиторией)
+- Стиль контента (серьёзный/живой/юморной)
+- Целевая аудитория (кто их подписчики)
+- Ключевые темы и ценности
+
+Максимум 200 слов."""}]
+        )
+        return resp.content[0].text
+    return await asyncio.to_thread(_call)
+
+
+async def _generate_ad_from_brief(brief_text: str, client_profile: str = "", client_text: str = "") -> str:
+    """Генерирует рекламный контент на основе брифа + портрета клиента + текста."""
+    import anthropic as _ant, asyncio
+
+    context_parts = []
+    if client_profile:
+        context_parts.append(f"ПОРТРЕТ КЛИЕНТА (из его страницы):\n{client_profile}")
+    if client_text:
+        context_parts.append(f"ГОТОВЫЙ ТЕКСТ ОТ КЛИЕНТА:\n{client_text}")
+    context_parts.append(f"ЗАПОЛНЕННЫЙ БРИФ:\n{brief_text}")
+    full_context = "\n\n---\n\n".join(context_parts)
+
     prompt = f"""Ты — опытный SMM-копирайтер медиапроекта Grants KZ (зарубежные гранты и стипендии для казахстанцев, аудитория 18-30 лет).
 
-Клиент заполнил рекламный бриф. Вот его содержимое:
+{full_context}
 
-{brief_text}
-
-На основе брифа создай рекламный пакет:
+На основе всей информации создай рекламный пакет:
 
 ---
 📸 INSTAGRAM ПОСТ
@@ -783,7 +861,7 @@ async def _generate_ad_from_brief(brief_text: str) -> str:
 
 ---
 
-Учти формат контента, тон, целевую аудиторию и цели из брифа. Пиши на русском языке."""
+Учти стиль клиента, тон брифа и целевую аудиторию. Пиши на русском языке."""
 
     def _call():
         client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -802,21 +880,23 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     args = context.args
     if args and args[0].lower() == "stop":
-        _brief_set(False)
+        _brief_clear()
         await update.message.reply_text("Режим брифа выключен.")
         return
-    _brief_set(True)
+    _brief_save({"step": "waiting_url", "client_profile": "", "client_text": ""})
     await update.message.reply_text(
-        "📋 Режим брифа включён.\n\n"
-        "Отправь фото или PDF заполненного брифа — сгенерирую рекламные тексты для Instagram и Telegram.\n\n"
-        "/brief stop — выйти."
+        "📋 Создаём рекламу по брифу.\n\n"
+        "Шаг 1/3: Отправь ссылку на страницу клиента (Instagram, Telegram, сайт) — изучу их контент и стиль.\n\n"
+        "Если ссылки нет — напиши *пропустить*.",
+        parse_mode="Markdown"
     )
 
 
 async def _process_brief_file(update: Update, brief_content_blocks: list) -> None:
     """Извлекает текст брифа и генерирует рекламный контент."""
     import anthropic as _ant, asyncio
-    _brief_set(False)
+    state = _brief_load()
+    _brief_clear()
     await update.message.reply_text("📋 Читаю бриф...")
 
     def _extract():
@@ -833,7 +913,11 @@ async def _process_brief_file(update: Update, brief_content_blocks: list) -> Non
     try:
         brief_text = await asyncio.to_thread(_extract)
         await update.message.reply_text("✍️ Генерирую рекламные тексты...")
-        ad_content = await _generate_ad_from_brief(brief_text)
+        ad_content = await _generate_ad_from_brief(
+            brief_text,
+            client_profile=state.get("client_profile", ""),
+            client_text=state.get("client_text", "")
+        )
         await send_long(update, ad_content)
     except Exception as e:
         logger.error(f"[Brief] error: {e}")
@@ -917,7 +1001,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not is_owner(update):
         return
     # Режим брифа — фото брифа
-    if _brief_active():
+    if _brief_load().get("step") == "waiting_brief":
         try:
             import base64
             photo = update.message.photo[-1]
@@ -1317,6 +1401,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
 
+    # Многошаговый режим брифа
+    brief_state = _brief_load()
+    if brief_state.get("step") == "waiting_url":
+        skip = user_text.lower() in ["пропустить", "пропусти", "skip", "-"]
+        if skip:
+            brief_state["client_profile"] = ""
+        else:
+            await update.message.reply_text("🔍 Изучаю страницу клиента...")
+            page_text = await _scrape_client_page(user_text.strip())
+            brief_state["client_profile"] = await _analyze_client_profile(user_text.strip(), page_text)
+        brief_state["step"] = "waiting_client_text"
+        _brief_save(brief_state)
+        await update.message.reply_text(
+            "Шаг 2/3: Есть готовый текст от клиента? Отправь его сюда.\n\n"
+            "Если нет — напиши *пропустить*.",
+            parse_mode="Markdown"
+        )
+        return
+
+    if brief_state.get("step") == "waiting_client_text":
+        skip = user_text.lower() in ["пропустить", "пропусти", "skip", "-"]
+        brief_state["client_text"] = "" if skip else user_text.strip()
+        brief_state["step"] = "waiting_brief"
+        _brief_save(brief_state)
+        await update.message.reply_text(
+            "Шаг 3/3: Отправь заполненный бриф — фото или PDF."
+        )
+        return
+
+    if brief_state.get("step") in ["waiting_brief"] and user_text.lower() in ["стоп", "stop", "/brief stop"]:
+        _brief_clear()
+        await update.message.reply_text("Режим брифа выключен.")
+        return
+
     # Режим toword — стоп
     if _toword_active() and user_text.lower() in ["стоп", "stop", "/toword stop"]:
         _toword_set(False)
@@ -1683,7 +1801,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     fname = doc.file_name.lower()
 
     # Режим брифа — PDF брифа
-    if _brief_active() and fname.endswith(".pdf"):
+    if _brief_load().get("step") == "waiting_brief" and fname.endswith(".pdf"):
         tmp_path = None
         try:
             import base64
