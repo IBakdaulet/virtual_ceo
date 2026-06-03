@@ -892,7 +892,7 @@ async def _generate_ad_from_brief(brief_text: str, client_profile: str = "", cli
     def _call():
         client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         resp = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -920,31 +920,59 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _process_brief_file(update: Update, brief_content_blocks: list) -> None:
-    """Извлекает текст брифа и генерирует рекламный контент."""
+    """Читает бриф и генерирует рекламный контент за один вызов Claude."""
     import anthropic as _ant, asyncio
     state = _brief_load()
     _brief_clear()
-    await update.message.reply_text("📋 Читаю бриф...")
+    await update.message.reply_text("📋 Читаю бриф и генерирую тексты...")
 
-    def _extract():
+    client_profile = state.get("client_profile", "")
+    client_text = state.get("client_text", "")
+
+    context_parts = []
+    if client_profile:
+        context_parts.append(f"ПУБЛИКАЦИИ КЛИЕНТА (изучи стиль, тон, аудиторию):\n{client_profile}")
+    if client_text:
+        context_parts.append(f"ГОТОВЫЙ ТЕКСТ ОТ КЛИЕНТА:\n{client_text}")
+    extra_context = "\n\n---\n\n".join(context_parts)
+
+    generation_prompt = f"""Ты — SMM-копирайтер Grants KZ (зарубежные гранты для казахстанцев, 18-30 лет).
+{extra_context}
+
+Ниже — заполненный рекламный бриф. Прочитай его и сразу создай рекламный пакет:
+
+---
+📸 INSTAGRAM ПОСТ
+(эмодзи, обращение на «ты», хук в первых 2 строках, хэштеги в конце)
+
+---
+✈️ TELEGRAM ПОСТ
+(без хэштегов, живой стиль, эмодзи уместно)
+
+---
+🎯 3 ВАРИАНТА ХУКА
+(цепляющие первые строки)
+
+---
+📣 CTA БЛОК
+(призыв к действию из брифа)
+
+---
+Пиши на русском языке. Учитывай стиль клиента из публикаций выше."""
+
+    def _one_call():
         client = _ant.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         resp = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=2000,
+            model="claude-sonnet-4-6",
+            max_tokens=3000,
             messages=[{"role": "user", "content": brief_content_blocks + [
-                {"type": "text", "text": "Извлеки все заполненные поля брифа в виде структурированного текста. Формат: Поле: Значение. Пропусти пустые поля."}
+                {"type": "text", "text": generation_prompt}
             ]}]
         )
         return resp.content[0].text
 
     try:
-        brief_text = await asyncio.to_thread(_extract)
-        await update.message.reply_text("✍️ Генерирую рекламные тексты...")
-        ad_content = await _generate_ad_from_brief(
-            brief_text,
-            client_profile=state.get("client_profile", ""),
-            client_text=state.get("client_text", "")
-        )
+        ad_content = await asyncio.to_thread(_one_call)
         await send_long(update, ad_content)
     except Exception as e:
         logger.error(f"[Brief] error: {e}")
