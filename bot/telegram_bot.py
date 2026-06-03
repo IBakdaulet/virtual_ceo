@@ -767,98 +767,62 @@ async def _handle_invoice_dialog(update: Update):
             )
 
 
-async def _scrape_client_page(url: str) -> str:
-    """Скрапит страницу клиента — Telegram/Instagram/сайт. Возвращает тексты постов."""
-    import aiohttp, re
-    from html.parser import HTMLParser
-
+async def _fetch_post(url: str, session) -> str:
+    """Извлекает текст одной публикации (Instagram пост, Telegram пост, страница)."""
+    import re
     url = url.strip().rstrip("/")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramBot/1.0)"}
 
-    # ── Telegram канал ──────────────────────────────────────────────
-    tg_match = re.match(r"(?:https?://)?(?:t\.me|telegram\.me)/([^/?]+)", url)
-    if tg_match:
-        channel = tg_match.group(1).lstrip("@")
-        posts = []
-        # Telegram web-view поддерживает пагинацию через before=<msg_id>
-        before = None
-        async with aiohttp.ClientSession(headers=headers) as session:
-            for _ in range(3):  # 3 страницы ~60 постов
-                page_url = f"https://t.me/s/{channel}"
-                if before:
-                    page_url += f"?before={before}"
-                try:
-                    async with session.get(page_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                        html = await resp.text(errors="ignore")
-                except Exception:
-                    break
-                # Извлекаем тексты постов из <div class="tgme_widget_message_text">
-                found = re.findall(r'class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
-                for f in found:
-                    clean = re.sub(r"<[^>]+>", "", f).strip()
-                    if clean:
-                        posts.append(clean)
-                # Находим наименьший message id для пагинации
-                ids = re.findall(r'data-post="\S+/(\d+)"', html)
-                if ids:
-                    before = min(int(i) for i in ids)
-                else:
-                    break
-        if posts:
-            posts = list(dict.fromkeys(posts))  # убираем дубли
-            return f"Telegram канал @{channel}. Последние посты:\n\n" + "\n\n---\n\n".join(posts[-50:])
-        return f"Telegram канал @{channel}: не удалось извлечь посты (возможно, канал закрытый)."
-
-    # ── Instagram ────────────────────────────────────────────────────
-    ig_match = re.match(r"(?:https?://)?(?:www\.)?instagram\.com/([^/?]+)", url)
-    if ig_match:
-        username = ig_match.group(1).rstrip("/")
-        # Instagram блокирует боты, пробуем получить bio и описание страницы
-        try:
-            async with aiohttp.ClientSession(headers=headers) as session:
-                async with session.get(f"https://www.instagram.com/{username}/", timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    html = await resp.text(errors="ignore")
-            # Ищем JSON в meta-тегах
-            desc = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html)
-            og_desc = re.search(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
-            title = re.search(r'<title>([^<]+)</title>', html)
-            parts = []
-            if title: parts.append(f"Страница: {title.group(1)}")
-            if desc: parts.append(f"Описание: {desc.group(1)}")
-            if og_desc: parts.append(f"OG описание: {og_desc.group(1)}")
-            if parts:
-                return f"Instagram @{username}.\n" + "\n".join(parts) + \
-                       "\n\n⚠️ Instagram ограничивает парсинг. Для глубокого анализа добавь несколько текстов постов вручную на следующем шаге."
-        except Exception:
-            pass
-        return f"Instagram @{username}: не удалось загрузить (Instagram блокирует боты). Добавь тексты постов вручную на следующем шаге."
-
-    # ── Обычный сайт ─────────────────────────────────────────────────
-    class TextExtractor(HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self.texts, self.skip = [], False
-        def handle_starttag(self, tag, attrs):
-            if tag in ("script", "style", "nav", "footer", "head"):
-                self.skip = True
-        def handle_endtag(self, tag):
-            if tag in ("script", "style", "nav", "footer", "head"):
-                self.skip = False
-        def handle_data(self, data):
-            if not self.skip and data.strip():
-                self.texts.append(data.strip())
     try:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+        # Instagram пост — oEmbed API (caption без авторизации)
+        if "instagram.com/p/" in url or "instagram.com/reel/" in url:
+            oembed_url = f"https://api.instagram.com/oembed/?url={url}"
+            async with session.get(oembed_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("title", "") or data.get("author_name", "")
+            # Fallback: meta description
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 html = await resp.text(errors="ignore")
-        parser = TextExtractor()
-        parser.feed(html)
-        text = " ".join(parser.texts)
-        return text[:3000] if text else "Не удалось извлечь текст."
+            m = re.search(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
+            return m.group(1) if m else "(пост недоступен)"
+
+        # Telegram пост — preview страница
+        tg = re.match(r"(?:https?://)?t\.me/([^/]+)/(\d+)", url)
+        if tg:
+            channel, msg_id = tg.group(1), tg.group(2)
+            embed_url = f"https://t.me/{channel}/{msg_id}?embed=1"
+            async with session.get(embed_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                html = await resp.text(errors="ignore")
+            found = re.findall(r'class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+            if found:
+                return re.sub(r"<[^>]+>", "", found[0]).strip()
+            return "(пост недоступен)"
+
+        # Любая другая страница — og:description или первый абзац
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+            html = await resp.text(errors="ignore")
+        m = re.search(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
+        if m:
+            return m.group(1)
+        m = re.search(r'<p[^>]*>([^<]{50,})</p>', html)
+        return m.group(1).strip() if m else "(текст не найден)"
+
     except Exception as e:
-        return f"Не удалось загрузить страницу: {e}"
+        return f"(ошибка: {e})"
+
+
+async def _scrape_post_urls(urls: list) -> str:
+    """Параллельно читает несколько ссылок на публикации и возвращает их тексты."""
+    import aiohttp, asyncio
+    async with aiohttp.ClientSession() as session:
+        tasks = [_fetch_post(url, session) for url in urls[:5]]
+        results = await asyncio.gather(*tasks)
+    parts = []
+    for url, text in zip(urls, results):
+        if text and "(ошибка" not in text and "(пост недоступен)" not in text:
+            parts.append(f"📌 {url}\n{text}")
+    return "\n\n---\n\n".join(parts) if parts else "Не удалось извлечь тексты публикаций."
 
 
 async def _analyze_client_profile(url: str, page_text: str) -> str:
@@ -948,8 +912,9 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _brief_save({"step": "waiting_url", "client_profile": "", "client_text": ""})
     await update.message.reply_text(
         "📋 Создаём рекламу по брифу.\n\n"
-        "Шаг 1/3: Отправь ссылку на страницу клиента (Instagram, Telegram, сайт) — изучу их контент и стиль.\n\n"
-        "Если ссылки нет — напиши *пропустить*.",
+        "Шаг 1/3: Отправь 2-5 ссылок на публикации клиента (каждая на новой строке) — изучу стиль и тон их контента.\n\n"
+        "Поддерживаются: Instagram посты, Telegram посты, страницы сайта.\n\n"
+        "Если ссылок нет — напиши *пропустить*.",
         parse_mode="Markdown"
     )
 
@@ -1470,9 +1435,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if skip:
             brief_state["client_profile"] = ""
         else:
-            await update.message.reply_text("🔍 Изучаю страницу клиента...")
-            page_text = await _scrape_client_page(user_text.strip())
-            brief_state["client_profile"] = page_text  # анализ объединён с генерацией
+            urls = [u.strip() for u in user_text.strip().splitlines() if u.strip().startswith("http")]
+            if not urls:
+                await update.message.reply_text("Не нашёл ссылок. Отправь ссылки начинающиеся с http, каждую на новой строке. Или напиши *пропустить*.", parse_mode="Markdown")
+                return
+            await update.message.reply_text(f"🔍 Читаю {len(urls)} публикаци{'ю' if len(urls)==1 else 'и'}...")
+            brief_state["client_profile"] = await _scrape_post_urls(urls)
         brief_state["step"] = "waiting_client_text"
         _brief_save(brief_state)
         await update.message.reply_text(
