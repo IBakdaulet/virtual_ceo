@@ -143,7 +143,7 @@ def append_balance_row(accounts: dict, usd_rate: float):
         sh = gc.open_by_key(BALANCE_SHEET_ID)
         ws = _get_or_create_sheet(sh, "Балансы")
 
-        date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+        date_str = datetime.now().strftime("%d.%m.%Y")
 
         # Считаем итог
         total_kzt = 0.0
@@ -164,11 +164,16 @@ def append_balance_row(accounts: dict, usd_rate: float):
         name_col = [["Счёт", "Валюта"]] + [[name, currency] for name, currency, _ in acc_rows]
         ws.update("A1", name_col)
 
-        # Определяем следующий свободный столбец (начиная с C)
-        next_col = max(len(all_data[0]) + 1, 3) if all_data else 3
-        ws.update_cell(1, next_col, date_str)
+        # Ищем колонку с сегодняшней датой — если есть, перезаписываем
+        header_row = all_data[0] if all_data else []
+        if date_str in header_row:
+            target_col = header_row.index(date_str) + 1
+        else:
+            target_col = max(len(header_row) + 1, 3)
+
+        ws.update_cell(1, target_col, date_str)
         for i, (_, _, balance) in enumerate(acc_rows):
-            ws.update_cell(i + 2, next_col, balance)
+            ws.update_cell(i + 2, target_col, balance)
     except Exception as e:
         print(f"[Sheets] append_balance_row error: {e}")
 
