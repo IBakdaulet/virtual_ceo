@@ -420,7 +420,7 @@ SALES_PROJECTS = ["grants_kz", "tanda_bilim"]  # только эти два пр
 class SalesConversation:
     """Пошаговый диалог с продажником — сегодня и месяц по двум проектам."""
 
-    STEPS = ["today", "month"]
+    STEPS = ["today", "month", "confirm"]
 
     def _load_state(self) -> dict:
         if not STATE_FILE.exists():
@@ -460,6 +460,14 @@ class SalesConversation:
         """Возвращает (следующий вопрос, is_done, summary_for_owner)."""
         state = self._load_state()
         step = state["step"]
+
+        # Сброс если шаг неизвестный (устаревший state от старой версии кода)
+        if step not in ("today", "month", "confirm"):
+            self.reset()
+            proj_name = PROJECTS[SALES_PROJECTS[0]]
+            msg = self.start()
+            return msg, False, None
+
         proj_key = state["active_projects"][state["project_index"]]
         proj_name = PROJECTS[proj_key]
 
@@ -483,11 +491,38 @@ class SalesConversation:
                 self._save_state(state)
                 return f"💰 {next_proj} — сколько продаж сегодня? (₸)\nПример: 80000 или 80к", False, None
             else:
+                state["step"] = "confirm"
+                self._save_state(state)
+                confirm_msg = self._build_confirm(state)
+                return confirm_msg, False, None
+
+        elif step == "confirm":
+            if text.strip().lower() in ["да", "yes", "верно", "ок", "ok", "всё верно", "все верно", "+"]:
                 state["active"] = False
                 self._save_state(state)
                 summary = self._build_summary(state)
                 self._save_entries(state)
                 return "✅ Отчёт сохранён! Спасибо.", True, summary
+            else:
+                state["step"] = "today"
+                state["project_index"] = 0
+                state["temp_data"] = {}
+                self._save_state(state)
+                proj_name = PROJECTS[state["active_projects"][0]]
+                return f"Хорошо, начнём заново.\n💰 {proj_name} — сколько продаж сегодня? (₸)", False, None
+
+    def _build_confirm(self, state: dict) -> str:
+        lines = ["📋 Проверь данные перед сохранением:"]
+        for proj_key in state["active_projects"]:
+            proj_name = PROJECTS[proj_key]
+            d = state["temp_data"].get(proj_key, {})
+            today_rev = d.get("revenue", 0)
+            month_rev = d.get("month_total", 0)
+            lines.append(f"\n{proj_name}")
+            lines.append(f"  Сегодня: {today_rev:,.0f} ₸")
+            lines.append(f"  Месяц итого: {month_rev:,.0f} ₸")
+        lines.append("\nВсё верно? (да / нет — начнём заново)")
+        return "\n".join(lines)
 
     def _build_summary(self, state: dict) -> str:
         today_str = date.today().strftime("%d.%m.%Y")
