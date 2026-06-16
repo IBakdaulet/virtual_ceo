@@ -38,7 +38,7 @@
     "halyk_deposit_kzt": {
       "name": "Halyk депозит KZT",
       "currency": "KZT",
-      "balance": 19100000.0,
+      "balance": 17195000.0,
       "type": "deposit"
     },
     "freedom_invest": {
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 488.94,
-  "last_updated": "2026-06-16T15:32:35.412128",
+  "last_updated": "2026-06-16T15:32:37.241216",
   "limits": {
     "daily": {},
     "weekly": {},
