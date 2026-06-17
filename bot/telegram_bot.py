@@ -746,11 +746,17 @@ async def _handle_invoice_dialog(update: Update):
         return
 
     step = inv["step"]
+    if step == "waiting_supplier":
+        await update.message.reply_text("Нажми одну из кнопок выше, чтобы выбрать юрлицо. Или напиши 'отмена'.")
+        return
+
     if step == "waiting_text":
         await update.message.reply_chat_action("typing")
         data = await _extract_invoice_data(user_text)
         required = ["invoice_number", "client_name", "client_bin", "client_address", "service_name", "amount"]
         if data and all(data.get(k) for k in required):
+            supplier_key = inv.get("temp", {}).get("supplier", "soz_media")
+            data["supplier_key"] = supplier_key
             _reset_invoice()
             await _generate_and_send_invoice(update, data)
         else:
@@ -1102,33 +1108,39 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Создание счёта — с текстом сразу или пошагово."""
+    """Создание счёта — сначала выбор юрлица, потом данные клиента."""
     if not (is_owner(update) or is_salesperson(update)):
         return
 
-    # Если передан текст сразу: /invoice ТОО Рога и Копыта, БИН 123...
-    text = " ".join(context.args) if context.args else ""
-    if text.strip():
-        await update.message.reply_chat_action("typing")
-        data = await _extract_invoice_data(text)
-        if data and all(data.get(k) for k in ["invoice_number", "client_name", "client_bin", "client_address", "service_name", "amount"]):
-            await _generate_and_send_invoice(update, data)
-        else:
-            await update.message.reply_text(
-                "Не смог извлечь все данные. Укажи:\n"
-                "клиент, БИН, адрес, услуга, сумма\n\n"
-                "Или начни пошагово — напиши /invoice без текста."
-            )
-        return
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("ТОО «Соз Медиа»", callback_data="invoice_supplier:soz_media"),
+            InlineKeyboardButton("ИП «Viral Media»", callback_data="invoice_supplier:viral_media"),
+        ]
+    ])
+    _save_invoice({"active": True, "step": "waiting_supplier", "temp": {}})
+    await update.message.reply_text("🧾 От кого выставить счёт?", reply_markup=keyboard)
 
-    _save_invoice({"active": True, "step": "waiting_text", "temp": {}})
-    await update.message.reply_text(
-        "🧾 Счёт на оплату\n\n"
+
+async def handle_invoice_supplier_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает выбор юрлица для счёта."""
+    query = update.callback_query
+    await query.answer()
+
+    supplier_key = query.data.split(":", 1)[1]
+    supplier_labels = {"soz_media": "ТОО «Соз Медиа»", "viral_media": "ИП «Viral Media»"}
+    label = supplier_labels.get(supplier_key, supplier_key)
+
+    _save_invoice({"step": "waiting_text", "temp": {"supplier": supplier_key}})
+    await query.edit_message_text(
+        f"🧾 Счёт от {label}\n\n"
         "Напиши данные клиента — я сам всё извлеку:\n\n"
         "Пример:\n"
         "ТОО Astana Publicity, БИН 100540014078, г. Астана ул. Туркестан 28А, реклама Grants KZ, 150 000 тенге\n\n"
         "Если услуга нестандартная — добавь код:\n"
-        "пост в телеграм, код 68, 80 000 тенге"
+        "пост в телеграм, код 68, 80 000 тенге\n\n"
+        "Написать 'отмена' для выхода."
     )
 
 
@@ -1140,6 +1152,7 @@ async def _generate_and_send_invoice(update: Update, data: dict):
         from agents.invoice_agent import generate_invoice_pdf, save_invoice_record
         num = data.get("invoice_number") or data.get("number")
         today = date.today()
+        supplier_key = data.get("supplier_key", "soz_media")
         pdf_bytes = generate_invoice_pdf(
             invoice_number=num,
             invoice_date=today,
@@ -1149,6 +1162,7 @@ async def _generate_and_send_invoice(update: Update, data: dict):
             service_name=data["service_name"],
             service_code=data.get("service_code", "00000000000"),
             amount=float(data["amount"]),
+            supplier_key=supplier_key,
         )
         save_invoice_record({
             "number": num,
@@ -1156,6 +1170,7 @@ async def _generate_and_send_invoice(update: Update, data: dict):
             "client": data["client_name"],
             "amount": data["amount"],
             "service": data["service_name"],
+            "supplier": supplier_key,
         })
         fname = f"Счет_{num}_{data['client_name'].replace(' ', '_')}.pdf"
         await update.message.reply_document(
@@ -2261,6 +2276,7 @@ def main() -> None:
     app.add_handler(CommandHandler("brief", cmd_brief))
     app.add_handler(CommandHandler("ceo", cmd_ceo))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
+    app.add_handler(CallbackQueryHandler(handle_invoice_supplier_callback, pattern="^invoice_supplier:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))

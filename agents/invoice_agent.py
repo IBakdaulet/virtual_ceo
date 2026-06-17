@@ -10,17 +10,37 @@ from pathlib import Path
 INVOICE_FILE = Path(__file__).parent.parent / "data" / "invoices.json"
 FONT_DIR = Path(__file__).parent.parent / "assets"
 
-SUPPLIER = {
-    "name": "ТОО «Соз Медиа»",
-    "bin": "200640002683",
-    "address": "РК, г. Астана, район Есиль, ул. Д.Кунаева 35, кв. 154",
-    "iik": "KZ18722S000014068883",
-    "kbe": "17",
-    "bank": 'АО "KASPI BANK"',
-    "bik": "CASPKZKA",
-    "kno": "859",
-    "executor": "Исаев Бакдаулет Асанович",
+SUPPLIERS = {
+    "soz_media": {
+        "name": "ТОО «Соз Медиа»",
+        "bin": "200640002683",
+        "address": "РК, г. Астана, район Есиль, ул. Д.Кунаева 35, кв. 154",
+        "iik": "KZ18722S000014068883",
+        "kbe": "17",
+        "bank": 'АО "KASPI BANK"',
+        "bik": "CASPKZKA",
+        "kno": "859",
+        "executor": "Исаев Бакдаулет Асанович",
+        "stamp": "stamp_transparent.png",
+        "signature": None,
+    },
+    "viral_media": {
+        "name": 'ИП «Viral Media»',
+        "bin": "920202301602",
+        "address": "РК, Алматинская обл., г. Алматы, ул. Виноградова, д. 25/1",
+        "iik": "KZ56722S000008724760",
+        "kbe": "19",
+        "bank": 'АО «Kaspi Bank»',
+        "bik": "CASPKZKA",
+        "kno": "859",
+        "executor": "Бекжанов Бақдаулет Пернебайұлы",
+        "stamp": "stamp_viral_media.png",
+        "signature": "signature_viral_media.png",
+    },
 }
+
+# Обратная совместимость
+SUPPLIER = SUPPLIERS["soz_media"]
 
 SERVICES = {
     "grants_kz": {"name": "Реклама в Grants.kz", "code": "00000000150"},
@@ -161,7 +181,9 @@ def generate_invoice_pdf(
     service_name: str,
     service_code: str,
     amount: float,
+    supplier_key: str = "soz_media",
 ) -> bytes:
+    supplier = SUPPLIERS.get(supplier_key, SUPPLIERS["soz_media"])
     _ensure_fonts()
 
     from reportlab.lib import colors
@@ -209,13 +231,13 @@ def generate_invoice_pdf(
     W = 180*mm
     req = [
         [p("Образец платежного поручения", bold=True, size=8), '', '', '', '', ''],
-        [p("Бенефициар:", bold=True), p(SUPPLIER["name"], bold=True),
-         p("ИИК", align=C), p(SUPPLIER["iik"]),
-         p("Кбе", align=C), p(SUPPLIER["kbe"], align=C)],
-        [p(""), p(f'БИН: {SUPPLIER["bin"]}'),
-         p("БИК", align=C), p(SUPPLIER["bik"]),
-         p("Код назначения платежа", align=C, size=6), p(SUPPLIER["kno"], align=C)],
-        [p("Банк бенефициара:", bold=True), p(SUPPLIER["bank"]), '', '', '', ''],
+        [p("Бенефициар:", bold=True), p(supplier["name"], bold=True),
+         p("ИИК", align=C), p(supplier["iik"]),
+         p("Кбе", align=C), p(supplier["kbe"], align=C)],
+        [p(""), p(f'БИН: {supplier["bin"]}'),
+         p("БИК", align=C), p(supplier["bik"]),
+         p("Код назначения платежа", align=C, size=6), p(supplier["kno"], align=C)],
+        [p("Банк бенефициара:", bold=True), p(supplier["bank"]), '', '', '', ''],
     ]
     cw = [28*mm, 52*mm, 12*mm, 46*mm, 28*mm, 14*mm]
     rt = Table(req, colWidths=cw)
@@ -237,7 +259,7 @@ def generate_invoice_pdf(
     story.append(Spacer(1, 4*mm))
 
     # Поставщик / Покупатель
-    sup_str = f'БИН / ИИН {SUPPLIER["bin"]},{SUPPLIER["name"]},{SUPPLIER["address"]}'
+    sup_str = f'БИН / ИИН {supplier["bin"]},{supplier["name"]},{supplier["address"]}'
     cli_str = f'БИН / ИИН {client_bin},{client_name},{client_address}'
     info = [
         [p("Поставщик:", bold=True), p(sup_str)],
@@ -285,22 +307,27 @@ def generate_invoice_pdf(
     story.append(p(f"Всего к оплате: {words}", bold=True))
     story.append(Spacer(1, 10*mm))
 
-    # Исполнитель + печать
-    stamp_path = FONT_DIR / "stamp_transparent.png"
-    if stamp_path.exists():
-        from reportlab.platypus import Image as RLImage
-        stamp = RLImage(str(stamp_path), width=30*mm, height=30*mm)
+    # Исполнитель + подпись + печать
+    from reportlab.platypus import Image as RLImage
+
+    stamp_path = FONT_DIR / supplier["stamp"]
+    stamp = RLImage(str(stamp_path), width=30*mm, height=30*mm) if stamp_path.exists() else p("")
+
+    sig_fname = supplier.get("signature")
+    sig_path = FONT_DIR / sig_fname if sig_fname else None
+    if sig_path and sig_path.exists():
+        sig_cell = RLImage(str(sig_path), width=30*mm, height=16*mm)
     else:
-        stamp = p("")
+        sig_cell = p("")
 
     ex = [
-        [p("Исполнитель", bold=True), stamp, p(f"/{SUPPLIER['executor']}/")],
+        [p("Исполнитель", bold=True), sig_cell, stamp, p(f"/{supplier['executor']}/")],
     ]
-    et = Table(ex, colWidths=[28*mm, 100*mm, 52*mm])
+    et = Table(ex, colWidths=[28*mm, 40*mm, 60*mm, 52*mm])
     et.setStyle(TableStyle([
-        ('LINEBELOW', (1, 0), (1, 0), 0.5, colors.black),
         ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
-        ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+        ('ALIGN', (1, 0), (2, 0), 'CENTER'),
+        ('LINEBELOW', (1, 0), (2, 0), 0.5, colors.black),
     ]))
     story.append(et)
 
