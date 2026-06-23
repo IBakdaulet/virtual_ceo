@@ -415,6 +415,18 @@ async def request_balances(context):
     await context.bot.send_message(chat_id=OWNER_ID, text=text)
 
 
+async def daily_sheets_sync(context):
+    """23:55 — записывает актуальные балансы в Google Sheets независимо от ручных обновлений."""
+    try:
+        from agents.finance_agent import _load
+        from agents.sheets_agent import append_balance_row
+        data = _load()
+        append_balance_row(data.get("accounts", {}), data.get("usd_to_kzt_rate", 1))
+        logger.info("Ежедневная запись балансов в Sheets выполнена")
+    except Exception as e:
+        logger.error(f"daily_sheets_sync error: {e}")
+
+
 async def reminder_balances(context):
     """Повторный запрос в 12:00 если не ответил вчера вечером."""
     state = load_state()
@@ -2221,7 +2233,7 @@ def main() -> None:
         name="usd_rate_update"
     )
 
-    # Балансы: 23:00 запрос, 12:00 повтор
+    # Балансы: 23:00 запрос, 12:00 повтор, 23:55 запись в Sheets
     app.job_queue.run_daily(
         request_balances,
         time=time(23, 0, tzinfo=ALMATY_TZ),
@@ -2231,6 +2243,11 @@ def main() -> None:
         reminder_balances,
         time=time(12, 0, tzinfo=ALMATY_TZ),
         name="balance_reminder"
+    )
+    app.job_queue.run_daily(
+        daily_sheets_sync,
+        time=time(23, 55, tzinfo=ALMATY_TZ),
+        name="daily_sheets_sync"
     )
 
     # Продажи: 17:00 запрос у продажника
