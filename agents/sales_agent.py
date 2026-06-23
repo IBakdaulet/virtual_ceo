@@ -46,14 +46,45 @@ Grants KZ: выручка 200к, 3 сделки, 15 звонков, pipeline 1.2
 Активные: Самрук 300к, Нурбанк 150к, ещё 2 без суммы"""
 
 
+_DEFAULT_DATA = {
+    "projects": {},
+    "entries": [],
+    "monthly_plans": {},
+    "daily_state": {"submitted_today": False, "submitted_date": None},
+}
+
+
 def _load() -> dict:
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_DATA)
+
+
+def _push_sales_to_github():
+    try:
+        import base64, httpx
+        token = os.getenv("GITHUB_TOKEN")
+        if not token:
+            return
+        url = "https://api.github.com/repos/IBakdaulet/virtual_ceo/contents/data/sales.json"
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        sha = httpx.get(url, headers=headers, timeout=10).json().get("sha", "")
+        content = DATA_FILE.read_text(encoding="utf-8")
+        httpx.put(url, headers=headers, json={
+            "message": "update: data/sales.json via bot",
+            "content": base64.b64encode(content.encode()).decode(),
+            "sha": sha,
+        }, timeout=10)
+    except Exception as e:
+        print(f"[Sales] GitHub push error: {e}")
 
 
 def _save(data: dict):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    _push_sales_to_github()
 
 
 def get_request_message() -> str:
@@ -433,6 +464,21 @@ class SalesConversation:
     def _save_state(self, state: dict):
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
+        try:
+            import base64, httpx
+            token = os.getenv("GITHUB_TOKEN")
+            if token:
+                url = "https://api.github.com/repos/IBakdaulet/virtual_ceo/contents/data/salesperson_state.json"
+                headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+                sha = httpx.get(url, headers=headers, timeout=10).json().get("sha", "")
+                content = STATE_FILE.read_text(encoding="utf-8")
+                httpx.put(url, headers=headers, json={
+                    "message": "update: data/salesperson_state.json via bot",
+                    "content": base64.b64encode(content.encode()).decode(),
+                    "sha": sha,
+                }, timeout=10)
+        except Exception as e:
+            print(f"[Sales] state GitHub push error: {e}")
 
     def is_stale(self, max_minutes: int = 120) -> bool:
         state = self._load_state()
@@ -468,6 +514,24 @@ class SalesConversation:
             msg = self.start()
             return msg, False, None
 
+        if step == "confirm":
+            if text.strip().lower() in ["да", "yes", "верно", "ок", "ok", "всё верно", "все верно", "+"]:
+                state["active"] = False
+                self._save_state(state)
+                summary = self._build_summary(state)
+                try:
+                    self._save_entries(state)
+                except Exception as e:
+                    print(f"[Sales] save_entries error: {e}")
+                return "✅ Отчёт сохранён! Спасибо.", True, summary
+            else:
+                state["step"] = "today"
+                state["project_index"] = 0
+                state["temp_data"] = {}
+                self._save_state(state)
+                proj_name = PROJECTS[state["active_projects"][0]]
+                return f"Хорошо, начнём заново.\n💰 {proj_name} — сколько продаж сегодня? (₸)", False, None
+
         proj_key = state["active_projects"][state["project_index"]]
         proj_name = PROJECTS[proj_key]
 
@@ -495,21 +559,6 @@ class SalesConversation:
                 self._save_state(state)
                 confirm_msg = self._build_confirm(state)
                 return confirm_msg, False, None
-
-        elif step == "confirm":
-            if text.strip().lower() in ["да", "yes", "верно", "ок", "ok", "всё верно", "все верно", "+"]:
-                state["active"] = False
-                self._save_state(state)
-                summary = self._build_summary(state)
-                self._save_entries(state)
-                return "✅ Отчёт сохранён! Спасибо.", True, summary
-            else:
-                state["step"] = "today"
-                state["project_index"] = 0
-                state["temp_data"] = {}
-                self._save_state(state)
-                proj_name = PROJECTS[state["active_projects"][0]]
-                return f"Хорошо, начнём заново.\n💰 {proj_name} — сколько продаж сегодня? (₸)", False, None
 
     def _build_confirm(self, state: dict) -> str:
         lines = ["📋 Проверь данные перед сохранением:"]

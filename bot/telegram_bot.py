@@ -370,11 +370,18 @@ async def handle_salesperson_message(update: Update, context: ContextTypes.DEFAU
         return
 
     await update.message.reply_chat_action("typing")
-    next_q, is_done, summary = conv.process_answer(update.message.text.strip())
+    try:
+        next_q, is_done, summary = conv.process_answer(update.message.text.strip())
+    except Exception as e:
+        logger.error(f"[Sales] process_answer error: {e}")
+        await update.message.reply_text("⚠️ Произошла ошибка при сохранении. Напиши 'да' чтобы начать заново.")
+        conv.reset()
+        return
+
     await update.message.reply_text(next_q)
 
     if is_done and summary:
-        await context.bot.send_message(chat_id=OWNER_ID, text=summary)
+        await context.bot.send_message(chat_id=OWNER_ID, text=f"📊 Отчёт от продажника:\n\n{summary}")
 
 
 # ─── Курс доллара ────────────────────────────────────────────────────────────
