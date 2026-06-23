@@ -572,8 +572,18 @@ async def _process_balance_text(update: Update, text: str):
     if updated:
         mark_responded()
         summary = format_summary(data)
+
+        # Немедленно пишем в Sheets (не ждём 23:55)
+        sheets_status = ""
+        try:
+            from agents.sheets_agent import append_balance_row
+            append_balance_row(data.get("accounts", {}), data.get("usd_to_kzt_rate", 1))
+            sheets_status = "\n📊 Записано в Google Sheets"
+        except Exception as e:
+            sheets_status = f"\n⚠️ Sheets не обновлён: {e}"
+
         await update.message.reply_text(
-            "✅ Балансы обновлены:\n" + "\n".join(updated) + f"\n\n{summary}"
+            "✅ Балансы обновлены:\n" + "\n".join(updated) + f"\n\n{summary}" + sheets_status
         )
     else:
         await update.message.reply_text("Не нашёл балансов в сообщении. Попробуйте ещё раз.")

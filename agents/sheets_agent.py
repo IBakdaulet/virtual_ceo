@@ -126,6 +126,15 @@ def populate_historical(year: int, months_data: dict):
     ws.update("A1", rows)
 
 
+def _col_letter(n: int) -> str:
+    """Конвертирует 1-based номер столбца в букву (1→A, 27→AA)."""
+    result = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        result = chr(65 + r) + result
+    return result
+
+
 def append_balance_row(accounts: dict, usd_rate: float):
     """
     Добавляет/обновляет столбец с датой — счета в строках, даты в столбцах.
@@ -133,51 +142,46 @@ def append_balance_row(accounts: dict, usd_rate: float):
     """
     gc = _get_client()
     if not gc:
-        print("[Sheets] append_balance_row: нет credentials")
-        return
-    try:
-        from datetime import datetime
-        import gspread.utils as gu
+        raise RuntimeError("нет GOOGLE_CREDENTIALS")
+    from datetime import datetime
 
-        sh = gc.open_by_key(BALANCE_SHEET_ID)
-        ws = _get_or_create_sheet(sh, "Балансы")
+    sh = gc.open_by_key(BALANCE_SHEET_ID)
+    ws = _get_or_create_sheet(sh, "Балансы")
 
-        date_str = datetime.now().strftime("%d.%m.%Y")
+    date_str = datetime.now().strftime("%d.%m.%Y")
 
-        # Считаем итог
-        total_kzt = 0.0
-        for acc in accounts.values():
-            balance = acc.get("balance", 0)
-            currency = acc.get("currency", "KZT")
-            total_kzt += balance * usd_rate if currency == "USD" else balance
+    # Считаем итог
+    total_kzt = 0.0
+    for acc in accounts.values():
+        balance = acc.get("balance", 0)
+        currency = acc.get("currency", "KZT")
+        total_kzt += balance * usd_rate if currency == "USD" else balance
 
-        # Строим список: [название, валюта, баланс]
-        acc_rows = []
-        for acc in accounts.values():
-            acc_rows.append([acc.get("name", ""), acc.get("currency", "KZT"), acc.get("balance", 0)])
-        acc_rows.append(["Итого KZT", "KZT", round(total_kzt)])
+    # Строим список: [название, валюта, баланс]
+    acc_rows = []
+    for acc in accounts.values():
+        acc_rows.append([acc.get("name", ""), acc.get("currency", "KZT"), acc.get("balance", 0)])
+    acc_rows.append(["Итого KZT", "KZT", round(total_kzt)])
 
-        all_data = ws.get_all_values()
+    all_data = ws.get_all_values()
 
-        # Батч 1: обновить A+B (названия и валюты)
-        name_col = [["Счёт", "Валюта"]] + [[name, cur] for name, cur, _ in acc_rows]
-        ws.update("A1", name_col)
+    # Батч 1: обновить A+B (названия и валюты)
+    name_col = [["Счёт", "Валюта"]] + [[name, cur] for name, cur, _ in acc_rows]
+    ws.update("A1", name_col)
 
-        # Определяем целевую колонку
-        header_row = all_data[0] if all_data else []
-        if date_str in header_row:
-            target_col = header_row.index(date_str) + 1
-        else:
-            target_col = max(len(header_row) + 1, 3)
+    # Определяем целевую колонку (1-indexed)
+    header_row = all_data[0] if all_data else []
+    if date_str in header_row:
+        target_col = header_row.index(date_str) + 1
+    else:
+        target_col = max(len(header_row) + 1, 3)
 
-        # Батч 2: весь столбец с датой одним запросом
-        col_values = [[date_str]] + [[bal] for _, _, bal in acc_rows]
-        start_cell = gu.rowcol_to_a1(1, target_col)
-        ws.update(start_cell, col_values)
+    # Батч 2: весь столбец с датой одним запросом
+    col_values = [[date_str]] + [[bal] for _, _, bal in acc_rows]
+    start_cell = f"{_col_letter(target_col)}1"
+    ws.update(start_cell, col_values)
 
-        print(f"[Sheets] Балансы записаны: {date_str}, колонка {target_col}, итого {round(total_kzt):,} ₸")
-    except Exception as e:
-        print(f"[Sheets] append_balance_row error: {e}")
+    print(f"[Sheets] Балансы записаны: {date_str}, колонка {start_cell}, итого {round(total_kzt):,} ₸")
 
 
 EXPENSE_ROWS = [
