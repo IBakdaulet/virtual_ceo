@@ -76,7 +76,10 @@ def _save(data: dict):
     data["last_updated"] = datetime.now().isoformat()
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    _append_balance_history(data)
+    try:
+        _append_balance_history(data)
+    except Exception as e:
+        print(f"[Finance] CSV history error: {e}")
     try:
         from agents.sheets_agent import append_balance_row
         append_balance_row(data.get("accounts", {}), data.get("usd_to_kzt_rate", 1))

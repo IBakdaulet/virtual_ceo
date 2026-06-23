@@ -235,6 +235,8 @@ async def send_long(update: Update, text: str):
 
 
 def load_state() -> dict:
+    if not STATE_FILE.exists():
+        return {"pending_update": False, "last_request": "", "last_update": ""}
     with open(STATE_FILE, "r") as f:
         return json.load(f)
 
@@ -242,6 +244,11 @@ def load_state() -> dict:
 def save_state(state: dict):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+    try:
+        from agents.finance_agent import _push_to_github
+        _push_to_github(STATE_FILE, "data/daily_state.json")
+    except Exception as e:
+        logger.warning(f"Не удалось запушить daily_state.json: {e}")
 
 
 def mark_responded():
@@ -1672,10 +1679,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
     # Режим создания счёта
+    # waiting_supplier — ждём нажатия кнопки, текстовые сообщения не перехватываем
     inv = _load_invoice()
-    if inv["active"]:
+    if inv["active"] and inv.get("step") != "waiting_supplier":
         await _handle_invoice_dialog(update)
         return
+    elif inv["active"] and inv.get("step") == "waiting_supplier":
+        if user_text.lower() in ["отмена", "стоп", "cancel"]:
+            _reset_invoice()
+            await update.message.reply_text("Отменено.")
+            return
+        # Всё остальное — пропускаем дальше по обработчику
 
     # Режим расчёта KPI
     kc = _load_kpicalc()
