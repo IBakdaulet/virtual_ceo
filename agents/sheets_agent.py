@@ -176,6 +176,10 @@ def append_balance_row(accounts: dict, usd_rate: float):
     else:
         target_col = max(len(header_row) + 1, 3)
 
+    # Расширяем лист если нужно
+    if target_col > ws.col_count:
+        ws.resize(rows=ws.row_count, cols=target_col + 30)
+
     # Батч 2: весь столбец с датой одним запросом
     col_values = [[date_str]] + [[bal] for _, _, bal in acc_rows]
     start_cell = f"{_col_letter(target_col)}1"
