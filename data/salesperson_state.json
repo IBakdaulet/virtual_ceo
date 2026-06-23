@@ -1,16 +1,7 @@
 {
-  "active": true,
-  "step": "today",
-  "project_index": 1,
-  "active_projects": [
-    "grants_kz",
-    "tanda_bilim"
-  ],
-  "temp_data": {
-    "grants_kz": {
-      "revenue": 1620000.0,
-      "month_total": 0.0
-    }
-  },
-  "started_at": "2026-06-23T14:05:12.977215"
+  "active": false,
+  "step": null,
+  "project_index": 0,
+  "active_projects": [],
+  "temp_data": {}
 }
