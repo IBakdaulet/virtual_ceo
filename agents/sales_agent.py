@@ -84,7 +84,6 @@ def _push_sales_to_github():
 def _save(data: dict):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    _push_sales_to_github()
 
 
 def get_request_message() -> str:
@@ -464,21 +463,6 @@ class SalesConversation:
     def _save_state(self, state: dict):
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
-        try:
-            import base64, httpx
-            token = os.getenv("GITHUB_TOKEN")
-            if token:
-                url = "https://api.github.com/repos/IBakdaulet/virtual_ceo/contents/data/salesperson_state.json"
-                headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-                sha = httpx.get(url, headers=headers, timeout=10).json().get("sha", "")
-                content = STATE_FILE.read_text(encoding="utf-8")
-                httpx.put(url, headers=headers, json={
-                    "message": "update: data/salesperson_state.json via bot",
-                    "content": base64.b64encode(content.encode()).decode(),
-                    "sha": sha,
-                }, timeout=10)
-        except Exception as e:
-            print(f"[Sales] state GitHub push error: {e}")
 
     def is_stale(self, max_minutes: int = 120) -> bool:
         state = self._load_state()
@@ -605,6 +589,8 @@ class SalesConversation:
         data["daily_state"]["submitted_today"] = True
         data["daily_state"]["submitted_date"] = today
         _save(data)
+        # Пушим в GitHub один раз после завершения диалога (не на каждом шаге)
+        _push_sales_to_github()
         try:
             from agents.sheets_agent import append_sales_row
             td = state["temp_data"]
