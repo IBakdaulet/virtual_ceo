@@ -272,50 +272,60 @@ async def request_sales_report(context):
     await context.bot.send_message(chat_id=SALESPERSON_ID, text=msg)
 
 
-async def check_stale_conversation(context):
-    """Каждые 30 мин: если диалог завис — сброс и напоминание продажнику."""
+async def check_sales_19(context):
+    """19:00 — если отчёт получен, шлём владельцу. Если нет — одно напоминание."""
+    from agents.sales_agent import is_submitted_today, daily_report, SalesConversation
+    if is_submitted_today():
+        report = daily_report()
+        await context.bot.send_message(chat_id=OWNER_ID, text=report)
+        return
     if SALESPERSON_ID == 0:
         return
-    from agents.sales_agent import SalesConversation, reset_daily_state
     conv = SalesConversation()
-    if conv.is_stale(max_minutes=60):
+    if conv.is_active():
+        # диалог начат но не завершён — мягкий толчок
+        await context.bot.send_message(
+            chat_id=SALESPERSON_ID,
+            text="⏰ Привет! Не забудь дозаполнить отчёт — я жду твоего ответа."
+        )
+    else:
+        # диалог не начат — перезапуск
+        from agents.sales_agent import reset_daily_state
         reset_daily_state()
         conv.reset()
         msg = conv.start()
         await context.bot.send_message(
             chat_id=SALESPERSON_ID,
-            text="⚠️ Отчёт не был заполнен до конца. Начинаем заново — нужно заполнить все 3 проекта.\n\n" + msg
+            text="⏰ Напоминание: нужен отчёт по продажам!\n\n" + msg
         )
-        logger.info("Зависший диалог сброшен и перезапущен")
-
-
-async def check_sales_19(context):
-    """19:00 — если отчёт получен, шлём владельцу. Если нет — напоминание."""
-    from agents.sales_agent import is_submitted_today, daily_report, get_reminder_message
-    if is_submitted_today():
-        report = daily_report()
-        await context.bot.send_message(chat_id=OWNER_ID, text=report)
-    else:
-        if SALESPERSON_ID != 0:
-            await context.bot.send_message(
-                chat_id=SALESPERSON_ID,
-                text=get_reminder_message(attempt=1)
-            )
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text="⏳ Дневной отчёт по продажам ещё не получен. Напомнил продажнику."
-        )
+    await context.bot.send_message(
+        chat_id=OWNER_ID,
+        text="⏳ Дневной отчёт по продажам ещё не получен. Напомнил продажнику."
+    )
 
 
 async def remind_sales_2030(context):
-    """20:30 — второе напоминание если всё ещё нет данных."""
-    from agents.sales_agent import is_submitted_today, get_reminder_message
+    """20:30 — последнее напоминание если всё ещё нет данных."""
+    from agents.sales_agent import is_submitted_today, SalesConversation
     if is_submitted_today():
         return
-    if SALESPERSON_ID != 0:
+    if SALESPERSON_ID == 0:
+        return
+    conv = SalesConversation()
+    if not conv.is_active():
+        # диалог так и не начат — перезапуск последний раз
+        from agents.sales_agent import reset_daily_state
+        reset_daily_state()
+        conv.reset()
+        msg = conv.start()
         await context.bot.send_message(
             chat_id=SALESPERSON_ID,
-            text=get_reminder_message(attempt=2)
+            text="🔔 Последнее напоминание! Нужен отчёт по продажам.\n\n" + msg
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=SALESPERSON_ID,
+            text="🔔 Последнее напоминание — дозаполни отчёт, пожалуйста."
         )
     await context.bot.send_message(
         chat_id=OWNER_ID,
@@ -2297,27 +2307,17 @@ def main() -> None:
         name="daily_sheets_sync"
     )
 
-    # Продажи: 17:00 запрос у продажника
+    # Продажи: 17:00 старт, 19:00 напоминание/отчёт, 20:30 последнее напоминание
     app.job_queue.run_daily(
         request_sales_report,
         time=time(17, 0, tzinfo=ALMATY_TZ),
         name="sales_request"
     )
-    # Каждые 30 мин: проверка зависшего диалога
-    app.job_queue.run_repeating(
-        check_stale_conversation,
-        interval=1800,
-        first=60,
-        name="stale_conv_check"
-    )
-
-    # 19:00 отчёт владельцу или напоминание
     app.job_queue.run_daily(
         check_sales_19,
         time=time(19, 0, tzinfo=ALMATY_TZ),
         name="sales_check_19"
     )
-    # 20:30 второе напоминание если нет данных
     app.job_queue.run_daily(
         remind_sales_2030,
         time=time(20, 30, tzinfo=ALMATY_TZ),
