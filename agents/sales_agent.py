@@ -390,11 +390,20 @@ def set_plan(project_key: str, amount: float, year_month: Optional[str] = None) 
 
 
 def _parse_amount(text: str) -> float:
-    """Парсит сумму: 200к→200000, 1.2М→1200000, нет→0."""
-    t = text.strip().lower()
+    """Парсит сумму: 200к→200000, 1.2М→1200000, 1,660,000→1660000, нет→0."""
+    t = text.strip().lower().replace(" ", "")
     if t in ["нет", "0", "не было", "-", "без", "пусто", "ничего"]:
         return 0.0
-    t = t.replace(" ", "").replace(",", ".")
+    # Запятая: если их > 1 или за ней ровно 3 цифры — разделитель тысяч (убрать).
+    # Иначе — десятичный разделитель (заменить на точку).
+    if t.count(",") > 1:
+        t = t.replace(",", "")                    # 1,660,000 → 1660000
+    elif t.count(",") == 1:
+        after = re.sub(r"[мк].*$", "", t.split(",")[1])
+        if len(after) == 3 and after.isdigit():
+            t = t.replace(",", "")               # 1,500 → 1500
+        else:
+            t = t.replace(",", ".")              # 1,5М → 1.5М
     m = re.match(r"([\d.]+)м", t)
     if m:
         return float(m.group(1)) * 1_000_000
