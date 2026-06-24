@@ -374,7 +374,7 @@ async def handle_salesperson_message(update: Update, context: ContextTypes.DEFAU
         next_q, is_done, summary = conv.process_answer(update.message.text.strip())
     except Exception as e:
         logger.error(f"[Sales] process_answer error: {e}")
-        await update.message.reply_text("⚠️ Произошла ошибка при сохранении. Напиши 'да' чтобы начать заново.")
+        await update.message.reply_text(f"⚠️ Ошибка: {e}\n\nНапиши /testsales чтобы начать заново.")
         conv.reset()
         return
 
