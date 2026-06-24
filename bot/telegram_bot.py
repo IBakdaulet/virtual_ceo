@@ -1499,6 +1499,31 @@ async def cmd_sales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("✅ Запрос отправлен продажнику.")
 
 
+async def cmd_testsales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Тест диалога продажника прямо в чате владельца."""
+    if not is_owner(update):
+        return
+    from agents.sales_agent import SalesConversation, reset_daily_state
+    reset_daily_state()
+    conv = SalesConversation()
+    conv.reset()
+    msg = conv.start()
+    context.user_data["test_sales_mode"] = True
+    await update.message.reply_text(
+        "🧪 Режим теста — симулируешь продажника. /cancelsales чтобы выйти.\n\n" + msg
+    )
+
+
+async def cmd_cancelsales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Выход из режима теста диалога продажника."""
+    if not is_owner(update):
+        return
+    from agents.sales_agent import SalesConversation
+    context.user_data.pop("test_sales_mode", None)
+    SalesConversation().reset()
+    await update.message.reply_text("Режим теста отключён.")
+
+
 # ─── Текстовые сообщения ─────────────────────────────────────────────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1507,6 +1532,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if not is_owner(update):
+        return
+
+    # Режим теста диалога продажника
+    if context.user_data.get("test_sales_mode"):
+        await handle_salesperson_message(update, context)
         return
 
     user_text = update.message.text.strip()
@@ -2323,6 +2353,8 @@ def main() -> None:
     app.add_handler(CommandHandler("toword", cmd_toword))
     app.add_handler(CommandHandler("brief", cmd_brief))
     app.add_handler(CommandHandler("ceo", cmd_ceo))
+    app.add_handler(CommandHandler("testsales", cmd_testsales))
+    app.add_handler(CommandHandler("cancelsales", cmd_cancelsales))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(CallbackQueryHandler(handle_invoice_supplier_callback, pattern="^invoice_supplier:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))

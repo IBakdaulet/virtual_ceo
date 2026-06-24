@@ -66,6 +66,18 @@
       "pipeline_total": 0.0,
       "active_negotiations": [],
       "date": "2026-04-27"
+    },
+    {
+      "project": "grants_kz",
+      "date": "2026-06-23",
+      "revenue": 100000.0,
+      "month_total": 2000000.0
+    },
+    {
+      "project": "tanda_bilim",
+      "date": "2026-06-23",
+      "revenue": 50000.0,
+      "month_total": 1500000.0
     }
   ],
   "monthly_plans": {
@@ -131,7 +143,7 @@
     }
   },
   "daily_state": {
-    "submitted_today": false,
-    "submitted_date": null
+    "submitted_today": true,
+    "submitted_date": "2026-06-23"
   }
 }
