@@ -1,7 +1,11 @@
 {
-  "active": false,
-  "step": null,
+  "active": true,
+  "step": "today",
   "project_index": 0,
-  "active_projects": [],
-  "temp_data": {}
+  "active_projects": [
+    "grants_kz",
+    "tanda_bilim"
+  ],
+  "temp_data": {},
+  "started_at": "2026-06-24T13:02:50.710195"
 }
