@@ -78,6 +78,18 @@
       "date": "2026-06-23",
       "revenue": 50000.0,
       "month_total": 1500000.0
+    },
+    {
+      "project": "grants_kz",
+      "date": "2026-06-24",
+      "revenue": 1620000.0,
+      "month_total": 2750000.0
+    },
+    {
+      "project": "tanda_bilim",
+      "date": "2026-06-24",
+      "revenue": 0.0,
+      "month_total": 1660000.0
     }
   ],
   "monthly_plans": {
@@ -144,6 +156,6 @@
   },
   "daily_state": {
     "submitted_today": true,
-    "submitted_date": "2026-06-23"
+    "submitted_date": "2026-06-24"
   }
 }
