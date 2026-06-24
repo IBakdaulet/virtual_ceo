@@ -2261,16 +2261,6 @@ async def on_startup(context):
             except Exception as e:
                 logger.error(f"Не удалось отправить запрос продажнику: {e}")
 
-    # После 19:00 — отчёт продаж владельцу если данные уже есть
-    if now.hour >= 19:
-        from agents.sales_agent import is_submitted_today, daily_report
-        if is_submitted_today():
-            try:
-                report = daily_report()
-                await context.bot.send_message(chat_id=OWNER_ID, text=f"📊 Дневной отчёт по продажам:\n\n{report}")
-                logger.info("Отчёт продаж отправлен при старте (пропущен 19:00)")
-            except Exception as e:
-                logger.error(f"Не удалось отправить отчёт: {e}")
 
 
 def main() -> None:

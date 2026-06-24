@@ -598,8 +598,6 @@ class SalesConversation:
         data["daily_state"]["submitted_today"] = True
         data["daily_state"]["submitted_date"] = today
         _save(data)
-        # Пушим в GitHub один раз после завершения диалога (не на каждом шаге)
-        _push_sales_to_github()
         try:
             from agents.sheets_agent import append_sales_row
             td = state["temp_data"]
