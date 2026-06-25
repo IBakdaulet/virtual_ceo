@@ -1534,11 +1534,96 @@ async def cmd_cancelsales(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_text("Режим теста отключён.")
 
 
+EXPENSE_PROJECTS = {
+    "grants_kz": "Grants KZ",
+    "tanda_bilim": "Tanda Bilim",
+    "ekonomist": "Ekonomist Media",
+}
+
+
+async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Многошаговый диалог записи расхода (доступен любому пользователю бота)."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    user_text = update.message.text.strip()
+    state = context.user_data.get("expense_state")
+
+    if not state:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(name, callback_data=f"expense_project:{key}")]
+            for key, name in EXPENSE_PROJECTS.items()
+        ])
+        await update.message.reply_text("💸 Расход — выбери проект:", reply_markup=keyboard)
+        context.user_data["expense_state"] = {"step": "project"}
+        return
+
+    step = state.get("step")
+
+    if step == "project":
+        await update.message.reply_text("Нажми кнопку выше чтобы выбрать проект 👆")
+        return
+
+    if step == "description":
+        state["description"] = user_text
+        state["step"] = "amount"
+        context.user_data["expense_state"] = state
+        await update.message.reply_text("💰 Сумма? (в тенге)")
+        return
+
+    if step == "amount":
+        from agents.sales_agent import _parse_amount
+        amount = _parse_amount(user_text)
+        project = state["project"]
+        description = state["description"]
+        who = update.effective_user.full_name or "Неизвестно"
+
+        try:
+            from agents.sheets_agent import append_expense_row
+            await asyncio.to_thread(append_expense_row, project, description, amount, who)
+            msg = (
+                f"✅ Расход записан:\n"
+                f"📁 {project}\n"
+                f"📝 {description}\n"
+                f"💰 {int(amount):,} ₸".replace(",", " ")
+            )
+            await update.message.reply_text(msg)
+            user_id = update.effective_user.id
+            if user_id != OWNER_ID:
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"💸 Новый расход от {who}:\n📁 {project}\n📝 {description}\n💰 {int(amount):,} ₸".replace(",", " ")
+                )
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Ошибка записи в таблицу: {e}")
+
+        context.user_data.pop("expense_state", None)
+
+
+async def handle_expense_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает выбор проекта для расхода."""
+    query = update.callback_query
+    await query.answer()
+    project_key = query.data.split(":", 1)[1]
+    project_name = EXPENSE_PROJECTS.get(project_key, project_key)
+
+    context.user_data["expense_state"] = {"step": "description", "project": project_name}
+    await query.edit_message_text(
+        f"📁 Проект: <b>{project_name}</b>\n\nЧто за расход? Опиши кратко.",
+        parse_mode="HTML"
+    )
+
+
 # ─── Текстовые сообщения ─────────────────────────────────────────────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if is_salesperson(update):
         await handle_salesperson_message(update, context)
+        return
+
+    user_text = update.message.text.strip()
+
+    # Расходы — доступны любому пользователю бота
+    if context.user_data.get("expense_state") or user_text.lower() in ["расход", "расходы", "трата", "трат"]:
+        await handle_expense_flow(update, context)
         return
 
     if not is_owner(update):
@@ -1549,7 +1634,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await handle_salesperson_message(update, context)
         return
 
-    user_text = update.message.text.strip()
     await update.message.reply_chat_action("typing")
 
     # Многошаговый режим брифа
@@ -2347,6 +2431,7 @@ def main() -> None:
     app.add_handler(CommandHandler("cancelsales", cmd_cancelsales))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(CallbackQueryHandler(handle_invoice_supplier_callback, pattern="^invoice_supplier:"))
+    app.add_handler(CallbackQueryHandler(handle_expense_callback, pattern="^expense_project:"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
