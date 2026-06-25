@@ -1580,18 +1580,22 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
             import asyncio
             from agents.sheets_agent import append_expense_row
             await asyncio.to_thread(append_expense_row, project, description, amount, who)
+            amount_str = f"{int(amount):,}".replace(",", " ")
             msg = (
                 f"✅ Расход записан:\n"
                 f"📁 {project}\n"
                 f"📝 {description}\n"
-                f"💰 {int(amount):,} ₸".replace(",", " ")
+                f"💰 {amount_str} ₸"
             )
-            await update.message.reply_text(msg)
+            add_more_btn = InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Ещё расход", callback_data="expense_add_more")]
+            ])
+            await update.message.reply_text(msg, reply_markup=add_more_btn)
             user_id = update.effective_user.id
             if user_id != OWNER_ID:
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
-                    text=f"💸 Новый расход от {who}:\n📁 {project}\n📝 {description}\n💰 {int(amount):,} ₸".replace(",", " ")
+                    text=f"💸 Новый расход от {who}:\n📁 {project}\n📝 {description}\n💰 {amount_str} ₸"
                 )
         except Exception as e:
             await update.message.reply_text(f"⚠️ Ошибка записи в таблицу: {e}")
@@ -1600,9 +1604,24 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_expense_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает выбор проекта для расхода."""
+    """Обрабатывает выбор проекта и кнопку 'Ещё расход'."""
     query = update.callback_query
     await query.answer()
+
+    if query.data == "expense_add_more":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(name, callback_data=f"expense_project:{key}")]
+            for key, name in EXPENSE_PROJECTS.items()
+        ])
+        await query.edit_message_reply_markup(reply_markup=None)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="💸 Расход — выбери проект:",
+            reply_markup=keyboard
+        )
+        context.user_data["expense_state"] = {"step": "project"}
+        return
+
     project_key = query.data.split(":", 1)[1]
     project_name = EXPENSE_PROJECTS.get(project_key, project_key)
 
@@ -2432,7 +2451,7 @@ def main() -> None:
     app.add_handler(CommandHandler("cancelsales", cmd_cancelsales))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(CallbackQueryHandler(handle_invoice_supplier_callback, pattern="^invoice_supplier:"))
-    app.add_handler(CallbackQueryHandler(handle_expense_callback, pattern="^expense_project:"))
+    app.add_handler(CallbackQueryHandler(handle_expense_callback, pattern="^expense_"))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
