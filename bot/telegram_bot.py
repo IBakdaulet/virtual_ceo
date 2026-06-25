@@ -80,12 +80,35 @@ def _reset_invoice():
     global invoice_state
     invoice_state.update({"active": False, "step": None, "temp": {}})
 
+EXPENSE_STATES_FILE = Path(__file__).parent.parent / "data" / "expense_states.json"
 YEARPLAN_FILE = Path(__file__).parent.parent / "data" / "yearplan_state.json"
 ANALYST_STATE_FILE = Path(__file__).parent.parent / "data" / "analyst_state.json"
 ANALYST_HISTORY_FILE = Path(__file__).parent.parent / "data" / "analyst_history.json"
 STATEMENT_PENDING_FILE = Path(__file__).parent.parent / "data" / "statement_pending.json"
 TOWORD_STATE_FILE = Path(__file__).parent.parent / "data" / "toword_state.json"
 BRIEF_STATE_FILE = Path(__file__).parent.parent / "data" / "brief_state.json"
+
+def _load_expense_state(user_id: int) -> dict:
+    try:
+        data = json.loads(EXPENSE_STATES_FILE.read_text(encoding="utf-8"))
+        return data.get(str(user_id), {})
+    except Exception:
+        return {}
+
+def _save_expense_state(user_id: int, state: dict) -> None:
+    try:
+        try:
+            data = json.loads(EXPENSE_STATES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        data[str(user_id)] = state
+        EXPENSE_STATES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[Expense] save state error: {e}")
+
+def _clear_expense_state(user_id: int) -> None:
+    _save_expense_state(user_id, {})
+
 
 def _load_yearplan() -> dict:
     if YEARPLAN_FILE.exists():
@@ -1544,8 +1567,9 @@ EXPENSE_PROJECTS = {
 async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Многошаговый диалог записи расхода (доступен любому пользователю бота)."""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    user_id = update.effective_user.id
     user_text = update.message.text.strip()
-    state = context.user_data.get("expense_state")
+    state = _load_expense_state(user_id)
 
     if not state:
         keyboard = InlineKeyboardMarkup([
@@ -1553,7 +1577,7 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
             for key, name in EXPENSE_PROJECTS.items()
         ])
         await update.message.reply_text("💸 Расход — выбери проект:", reply_markup=keyboard)
-        context.user_data["expense_state"] = {"step": "project"}
+        _save_expense_state(user_id, {"step": "project"})
         return
 
     step = state.get("step")
@@ -1565,7 +1589,7 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     if step == "description":
         state["description"] = user_text
         state["step"] = "amount"
-        context.user_data["expense_state"] = state
+        _save_expense_state(user_id, state)
         await update.message.reply_text("💰 Сумма? (в тенге)")
         return
 
@@ -1591,7 +1615,6 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
                 [InlineKeyboardButton("➕ Ещё расход", callback_data="expense_add_more")]
             ])
             await update.message.reply_text(msg, reply_markup=add_more_btn)
-            user_id = update.effective_user.id
             if user_id != OWNER_ID:
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
@@ -1600,13 +1623,14 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception as e:
             await update.message.reply_text(f"⚠️ Ошибка записи в таблицу: {e}")
 
-        context.user_data.pop("expense_state", None)
+        _clear_expense_state(user_id)
 
 
 async def handle_expense_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает выбор проекта и кнопку 'Ещё расход'."""
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
 
     if query.data == "expense_add_more":
         keyboard = InlineKeyboardMarkup([
@@ -1619,13 +1643,13 @@ async def handle_expense_callback(update: Update, context: ContextTypes.DEFAULT_
             text="💸 Расход — выбери проект:",
             reply_markup=keyboard
         )
-        context.user_data["expense_state"] = {"step": "project"}
+        _save_expense_state(user_id, {"step": "project"})
         return
 
     project_key = query.data.split(":", 1)[1]
     project_name = EXPENSE_PROJECTS.get(project_key, project_key)
 
-    context.user_data["expense_state"] = {"step": "description", "project": project_name}
+    _save_expense_state(user_id, {"step": "description", "project": project_name})
     await query.edit_message_text(
         f"📁 Проект: <b>{project_name}</b>\n\nЧто за расход? Опиши кратко.",
         parse_mode="HTML"
@@ -1642,7 +1666,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_text = update.message.text.strip()
 
     # Расходы — доступны любому пользователю бота
-    if context.user_data.get("expense_state") or user_text.lower() in ["расход", "расходы", "трата", "трат"]:
+    uid = update.effective_user.id
+    if _load_expense_state(uid) or user_text.lower() in ["расход", "расходы", "трата", "трат"]:
         await handle_expense_flow(update, context)
         return
 
