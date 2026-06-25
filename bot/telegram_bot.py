@@ -1577,6 +1577,7 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
         who = update.effective_user.full_name or "Неизвестно"
 
         try:
+            import asyncio
             from agents.sheets_agent import append_expense_row
             await asyncio.to_thread(append_expense_row, project, description, amount, who)
             msg = (
