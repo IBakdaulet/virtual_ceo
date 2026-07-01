@@ -175,6 +175,37 @@ def save_entries(entries: List[Dict]) -> int:
     return len(entries)
 
 
+def get_recent_dates(days: int = 7) -> List[str]:
+    """Возвращает даты (YYYY-MM-DD) у которых есть записи, за последние N дней."""
+    data = _load()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    dates = sorted(
+        {e["date"] for e in data["entries"] if e.get("date", "") >= cutoff},
+        reverse=True
+    )
+    return dates
+
+
+def get_entries_by_date(date_str: str) -> List[Dict]:
+    data = _load()
+    return [e for e in data["entries"] if e.get("date") == date_str]
+
+
+def update_entry(date_str: str, project: str, revenue: float, month_total: float) -> None:
+    data = _load()
+    data["entries"] = [
+        e for e in data["entries"]
+        if not (e.get("date") == date_str and e.get("project") == project)
+    ]
+    data["entries"].append({
+        "project": project,
+        "date": date_str,
+        "revenue": revenue,
+        "month_total": month_total,
+    })
+    _save(data)
+
+
 def is_submitted_today() -> bool:
     data = _load()
     today = date.today().isoformat()

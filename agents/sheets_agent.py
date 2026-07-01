@@ -88,6 +88,29 @@ def append_sales_row(today_grants: float, today_tanda: float,
         print(f"[Sheets] append_sales_row error: {e}")
 
 
+def upsert_sales_row_by_date(date_str: str, grants_rev: float, tanda_rev: float,
+                             month_grants: float, month_tanda: float) -> None:
+    """Обновляет строку продаж по дате (или добавляет новую)."""
+    from datetime import datetime as _dt
+    gc = _get_client()
+    if not gc:
+        raise RuntimeError("нет GOOGLE_CREDENTIALS")
+    sh = gc.open_by_key(SHEET_ID)
+    ws = _get_or_create_sheet(sh, "Продажи")
+    header = ["Дата", "Grants KZ (день)", "Tanda Bilim (день)", "Итого день",
+              "Grants KZ (месяц)", "Tanda Bilim (месяц)", "Итого месяц"]
+    _ensure_header(ws, header)
+    date_fmt = _dt.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+    row = [date_fmt, grants_rev, tanda_rev, grants_rev + tanda_rev,
+           month_grants, month_tanda, month_grants + month_tanda]
+    col_values = ws.col_values(1)
+    for i, cell in enumerate(col_values[1:], start=2):
+        if cell == date_fmt:
+            ws.update(f"A{i}:G{i}", [row], value_input_option="USER_ENTERED")
+            return
+    ws.append_row(row, value_input_option="USER_ENTERED")
+
+
 def upsert_kpi_row(year_month: str, grants_rev: float, tanda_rev: float,
                    grants_bonus: float, tanda_bonus: float,
                    total_fixed: float, total_bonus: float):

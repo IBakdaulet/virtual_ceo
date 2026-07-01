@@ -46,6 +46,18 @@ ADDDATA_FILE = Path(__file__).parent.parent / "data" / "adddata_state.json"
 kpiset_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
 kpicalc_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
 invoice_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
+editsales_state: dict = {"active": False, "step": None, "temp": {}}  # in-memory
+
+def _load_editsales() -> dict:
+    return editsales_state
+
+def _save_editsales(updates: dict):
+    global editsales_state
+    editsales_state.update(updates)
+
+def _reset_editsales():
+    global editsales_state
+    editsales_state.update({"active": False, "step": None, "temp": {}})
 
 def _load_kpiset() -> dict:
     return kpiset_state
@@ -1557,6 +1569,84 @@ async def cmd_cancelsales(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_text("Режим теста отключён.")
 
 
+EDIT_SALES_PROJECTS = {
+    "grants_kz": "Grants KZ",
+    "tanda_bilim": "Tanda Bilim",
+    "ekonomist_media": "Ekonomist Media",
+}
+
+
+async def cmd_editsales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Редактирование записей продаж за последние 7 дней."""
+    if not (is_owner(update) or is_salesperson(update)):
+        return
+    from agents.sales_agent import get_recent_dates
+    dates = get_recent_dates(days=7)
+    if not dates:
+        await update.message.reply_text("Нет записей за последние 7 дней.")
+        return
+    from datetime import datetime
+    buttons = [
+        [InlineKeyboardButton(
+            datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m.%Y"),
+            callback_data=f"editsales_date:{d}"
+        )]
+        for d in dates
+    ]
+    _save_editsales({"active": True, "step": "date", "temp": {}})
+    await update.message.reply_text(
+        "✏️ Редактировать продажи — выбери дату:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def handle_editsales_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает шаги диалога редактирования продаж."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    es = _load_editsales()
+    temp = es.get("temp", {})
+
+    if data.startswith("editsales_date:"):
+        date_str = data.split(":", 1)[1]
+        from agents.sales_agent import get_entries_by_date, PROJECTS
+        entries = get_entries_by_date(date_str)
+        projects_found = {e["project"] for e in entries}
+        buttons = [
+            [InlineKeyboardButton(EDIT_SALES_PROJECTS[p], callback_data=f"editsales_proj:{date_str}:{p}")]
+            for p in EDIT_SALES_PROJECTS if p in projects_found
+        ]
+        if not buttons:
+            await query.edit_message_text("Нет записей на эту дату.")
+            _reset_editsales()
+            return
+        _save_editsales({"step": "project", "temp": {"date": date_str}})
+        await query.edit_message_text(
+            f"📅 {date_str} — выбери проект:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+    elif data.startswith("editsales_proj:"):
+        _, date_str, proj_key = data.split(":", 2)
+        from agents.sales_agent import get_entries_by_date
+        entries = get_entries_by_date(date_str)
+        entry = next((e for e in entries if e["project"] == proj_key), None)
+        proj_name = EDIT_SALES_PROJECTS.get(proj_key, proj_key)
+        current = ""
+        if entry:
+            current = (
+                f"\nТекущие значения:\n"
+                f"  День: {int(entry.get('revenue', 0)):,} ₸\n"
+                f"  Месяц итого: {int(entry.get('month_total', 0)):,} ₸"
+            ).replace(",", " ")
+        _save_editsales({"step": "revenue", "temp": {"date": date_str, "project": proj_key}})
+        await query.edit_message_text(
+            f"✏️ {proj_name} за {date_str}{current}\n\n"
+            f"Новые продажи за день? (₸)"
+        )
+
+
 EXPENSE_PROJECTS = {
     "grants_kz": "Grants KZ",
     "tanda_bilim": "Tanda Bilim",
@@ -1759,6 +1849,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await _handle_analyst_message(update)
         return
+
+    # Редактирование продаж
+    es = _load_editsales()
+    if es["active"] and es.get("step") in ("revenue", "month_total"):
+        if user_text.lower() in ["отмена", "стоп", "cancel"]:
+            _reset_editsales()
+            await update.message.reply_text("Отменено.")
+            return
+        from agents.sales_agent import _parse_amount
+        temp = es.get("temp", {})
+        if es["step"] == "revenue":
+            temp["revenue"] = _parse_amount(user_text)
+            _save_editsales({"step": "month_total", "temp": temp})
+            await update.message.reply_text("Итого за месяц? (₸)")
+            return
+        if es["step"] == "month_total":
+            temp["month_total"] = _parse_amount(user_text)
+            date_str = temp["date"]
+            proj_key = temp["project"]
+            revenue = temp["revenue"]
+            month_total = temp["month_total"]
+            proj_name = EDIT_SALES_PROJECTS.get(proj_key, proj_key)
+            try:
+                import asyncio
+                from agents.sales_agent import update_entry, get_entries_by_date
+                from agents.sheets_agent import upsert_sales_row_by_date
+                update_entry(date_str, proj_key, revenue, month_total)
+                all_entries = get_entries_by_date(date_str)
+                def _get_rev(p): return next((e.get("revenue", 0) for e in all_entries if e["project"] == p), 0)
+                def _get_mon(p): return next((e.get("month_total", 0) for e in all_entries if e["project"] == p), 0)
+                await asyncio.to_thread(
+                    upsert_sales_row_by_date,
+                    date_str,
+                    _get_rev("grants_kz"), _get_rev("tanda_bilim"),
+                    _get_mon("grants_kz"), _get_mon("tanda_bilim")
+                )
+                amount_day = f"{int(revenue):,}".replace(",", " ")
+                amount_mon = f"{int(month_total):,}".replace(",", " ")
+                await update.message.reply_text(
+                    f"✅ Обновлено:\n"
+                    f"📁 {proj_name} — {date_str}\n"
+                    f"  День: {amount_day} ₸\n"
+                    f"  Месяц: {amount_mon} ₸\n"
+                    f"📊 Google Sheets обновлён"
+                )
+            except Exception as e:
+                await update.message.reply_text(f"⚠️ Ошибка: {e}")
+            _reset_editsales()
+            return
 
     # Режим установки KPI
     ks = _load_kpiset()
@@ -2474,6 +2613,8 @@ def main() -> None:
     app.add_handler(CommandHandler("ceo", cmd_ceo))
     app.add_handler(CommandHandler("testsales", cmd_testsales))
     app.add_handler(CommandHandler("cancelsales", cmd_cancelsales))
+    app.add_handler(CommandHandler("editsales", cmd_editsales))
+    app.add_handler(CallbackQueryHandler(handle_editsales_callback, pattern="^editsales_"))
     app.add_handler(CallbackQueryHandler(handle_ceo_callback, pattern="^ceo:"))
     app.add_handler(CallbackQueryHandler(handle_invoice_supplier_callback, pattern="^invoice_supplier:"))
     app.add_handler(CallbackQueryHandler(handle_expense_callback, pattern="^expense_"))
