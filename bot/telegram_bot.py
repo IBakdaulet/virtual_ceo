@@ -1642,6 +1642,77 @@ EXPENSE_PROJECTS = {
 }
 
 
+async def _handle_editsales_text(update, user_text: str) -> None:
+    """Обрабатывает текстовые шаги диалога /editsales (дата → день → месяц)."""
+    es = _load_editsales()
+    temp = es.get("temp", {})
+
+    if user_text.lower() in ["отмена", "стоп", "cancel"]:
+        _reset_editsales()
+        await update.message.reply_text("Отменено.")
+        return
+
+    from agents.sales_agent import _parse_amount
+
+    if es["step"] == "date":
+        date_str = _parse_editsales_date(user_text)
+        if not date_str:
+            await update.message.reply_text("Не понял дату. Напиши например: 30 июня, вчера, 24.06")
+            return
+        from agents.sales_agent import get_entries_by_date
+        entries = get_entries_by_date(date_str)
+        entry = next((e for e in entries if e["project"] == temp.get("project")), None)
+        proj_name = EDIT_SALES_PROJECTS.get(temp.get("project", ""), "")
+        current = ""
+        if entry:
+            day = f"{int(entry.get('revenue', 0)):,}".replace(",", " ")
+            mon = f"{int(entry.get('month_total', 0)):,}".replace(",", " ")
+            current = f"\nСейчас: день {day} ₸ / месяц {mon} ₸"
+        temp["date"] = date_str
+        _save_editsales({"step": "revenue", "temp": temp})
+        await update.message.reply_text(
+            f"📁 {proj_name} — {date_str}{current}\n\n💰 Продажи за день? (₸)"
+        )
+
+    elif es["step"] == "revenue":
+        temp["revenue"] = _parse_amount(user_text)
+        _save_editsales({"step": "month_total", "temp": temp})
+        await update.message.reply_text("Итого за месяц? (₸)")
+
+    elif es["step"] == "month_total":
+        temp["month_total"] = _parse_amount(user_text)
+        date_str = temp["date"]
+        proj_key = temp["project"]
+        revenue = temp["revenue"]
+        month_total = temp["month_total"]
+        proj_name = EDIT_SALES_PROJECTS.get(proj_key, proj_key)
+        try:
+            import asyncio
+            from agents.sales_agent import update_entry, get_entries_by_date
+            from agents.sheets_agent import upsert_sales_row_by_date
+            update_entry(date_str, proj_key, revenue, month_total)
+            all_entries = get_entries_by_date(date_str)
+            def _get_rev(p): return next((e.get("revenue", 0) for e in all_entries if e["project"] == p), 0)
+            def _get_mon(p): return next((e.get("month_total", 0) for e in all_entries if e["project"] == p), 0)
+            await asyncio.to_thread(
+                upsert_sales_row_by_date, date_str,
+                _get_rev("grants_kz"), _get_rev("tanda_bilim"),
+                _get_mon("grants_kz"), _get_mon("tanda_bilim")
+            )
+            amount_day = f"{int(revenue):,}".replace(",", " ")
+            amount_mon = f"{int(month_total):,}".replace(",", " ")
+            await update.message.reply_text(
+                f"✅ Обновлено:\n"
+                f"📁 {proj_name} — {date_str}\n"
+                f"  День: {amount_day} ₸\n"
+                f"  Месяц: {amount_mon} ₸\n"
+                f"📊 Google Sheets обновлён"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Ошибка: {e}")
+        _reset_editsales()
+
+
 async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Многошаговый диалог записи расхода (доступен любому пользователю бота)."""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -1737,11 +1808,23 @@ async def handle_expense_callback(update: Update, context: ContextTypes.DEFAULT_
 # ─── Текстовые сообщения ─────────────────────────────────────────────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_text = update.message.text.strip()
+
+    # editsales — приоритет для всех (продажник тоже может редактировать)
+    es = _load_editsales()
+    if es["active"] and es.get("step") in ("date", "revenue", "month_total"):
+        if not (is_owner(update) or is_salesperson(update)):
+            return
+        # передаём управление в блок editsales внутри owner-секции напрямую
+        await _handle_editsales_text(update, user_text)
+        return
+    if (is_owner(update) or is_salesperson(update)) and user_text.lower() in ["исправить", "редактировать", "edit"]:
+        await cmd_editsales(update, context)
+        return
+
     if is_salesperson(update):
         await handle_salesperson_message(update, context)
         return
-
-    user_text = update.message.text.strip()
 
     # Расходы — доступны любому пользователю бота
     uid = update.effective_user.id
@@ -1837,77 +1920,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await _handle_analyst_message(update)
         return
-
-    # Редактирование продаж
-    es = _load_editsales()
-    if es["active"] and es.get("step") in ("date", "revenue", "month_total"):
-        if user_text.lower() in ["отмена", "стоп", "cancel"]:
-            _reset_editsales()
-            await update.message.reply_text("Отменено.")
-            return
-        from agents.sales_agent import _parse_amount
-        temp = es.get("temp", {})
-        if es["step"] == "date":
-            date_str = _parse_editsales_date(user_text)
-            if not date_str:
-                await update.message.reply_text(
-                    "Не понял дату. Напиши например: 30 июня, вчера, 24.06"
-                )
-                return
-            from agents.sales_agent import get_entries_by_date
-            entries = get_entries_by_date(date_str)
-            entry = next((e for e in entries if e["project"] == temp.get("project")), None)
-            proj_name = EDIT_SALES_PROJECTS.get(temp.get("project", ""), "")
-            current = ""
-            if entry:
-                day = f"{int(entry.get('revenue', 0)):,}".replace(",", " ")
-                mon = f"{int(entry.get('month_total', 0)):,}".replace(",", " ")
-                current = f"\nСейчас: день {day} ₸ / месяц {mon} ₸"
-            temp["date"] = date_str
-            _save_editsales({"step": "revenue", "temp": temp})
-            await update.message.reply_text(
-                f"📁 {proj_name} — {date_str}{current}\n\n💰 Продажи за день? (₸)"
-            )
-            return
-        if es["step"] == "revenue":
-            temp["revenue"] = _parse_amount(user_text)
-            _save_editsales({"step": "month_total", "temp": temp})
-            await update.message.reply_text("Итого за месяц? (₸)")
-            return
-        if es["step"] == "month_total":
-            temp["month_total"] = _parse_amount(user_text)
-            date_str = temp["date"]
-            proj_key = temp["project"]
-            revenue = temp["revenue"]
-            month_total = temp["month_total"]
-            proj_name = EDIT_SALES_PROJECTS.get(proj_key, proj_key)
-            try:
-                import asyncio
-                from agents.sales_agent import update_entry, get_entries_by_date
-                from agents.sheets_agent import upsert_sales_row_by_date
-                update_entry(date_str, proj_key, revenue, month_total)
-                all_entries = get_entries_by_date(date_str)
-                def _get_rev(p): return next((e.get("revenue", 0) for e in all_entries if e["project"] == p), 0)
-                def _get_mon(p): return next((e.get("month_total", 0) for e in all_entries if e["project"] == p), 0)
-                await asyncio.to_thread(
-                    upsert_sales_row_by_date,
-                    date_str,
-                    _get_rev("grants_kz"), _get_rev("tanda_bilim"),
-                    _get_mon("grants_kz"), _get_mon("tanda_bilim")
-                )
-                amount_day = f"{int(revenue):,}".replace(",", " ")
-                amount_mon = f"{int(month_total):,}".replace(",", " ")
-                await update.message.reply_text(
-                    f"✅ Обновлено:\n"
-                    f"📁 {proj_name} — {date_str}\n"
-                    f"  День: {amount_day} ₸\n"
-                    f"  Месяц: {amount_mon} ₸\n"
-                    f"📊 Google Sheets обновлён"
-                )
-            except Exception as e:
-                await update.message.reply_text(f"⚠️ Ошибка: {e}")
-            _reset_editsales()
-            return
 
     # Режим установки KPI
     ks = _load_kpiset()
