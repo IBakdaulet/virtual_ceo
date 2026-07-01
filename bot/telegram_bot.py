@@ -1576,58 +1576,48 @@ EDIT_SALES_PROJECTS = {
 }
 
 
+def _build_editsales_keyboard(entries: list) -> InlineKeyboardMarkup:
+    from datetime import datetime
+    buttons = []
+    for e in entries:
+        proj_name = EDIT_SALES_PROJECTS.get(e["project"], e["project"])
+        date_fmt = datetime.strptime(e["date"], "%Y-%m-%d").strftime("%d.%m")
+        day = f"{int(e.get('revenue', 0)):,}".replace(",", " ")
+        mon = f"{int(e.get('month_total', 0)):,}".replace(",", " ")
+        label = f"{date_fmt} · {proj_name} | день {day} / мес {mon} ₸"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"editsales_entry:{e['date']}:{e['project']}")])
+    return InlineKeyboardMarkup(buttons)
+
+
 async def cmd_editsales(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Редактирование записей продаж за последние 7 дней."""
+    """Показывает все записи продаж за 7 дней — выбери запись для редактирования."""
     if not (is_owner(update) or is_salesperson(update)):
         return
-    from agents.sales_agent import get_recent_dates
+    from agents.sales_agent import get_recent_dates, get_entries_by_date
     dates = get_recent_dates(days=7)
     if not dates:
         await update.message.reply_text("Нет записей за последние 7 дней.")
         return
-    from datetime import datetime
-    buttons = [
-        [InlineKeyboardButton(
-            datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m.%Y"),
-            callback_data=f"editsales_date:{d}"
-        )]
-        for d in dates
-    ]
-    _save_editsales({"active": True, "step": "date", "temp": {}})
+    all_entries = []
+    for d in dates:
+        all_entries.extend(get_entries_by_date(d))
+    if not all_entries:
+        await update.message.reply_text("Нет записей за последние 7 дней.")
+        return
+    _save_editsales({"active": True, "step": "entry", "temp": {}})
     await update.message.reply_text(
-        "✏️ Редактировать продажи — выбери дату:",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        "✏️ Выбери запись для редактирования:",
+        reply_markup=_build_editsales_keyboard(all_entries)
     )
 
 
 async def handle_editsales_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает шаги диалога редактирования продаж."""
+    """Обрабатывает выбор записи для редактирования."""
     query = update.callback_query
     await query.answer()
     data = query.data
-    es = _load_editsales()
-    temp = es.get("temp", {})
 
-    if data.startswith("editsales_date:"):
-        date_str = data.split(":", 1)[1]
-        from agents.sales_agent import get_entries_by_date, PROJECTS
-        entries = get_entries_by_date(date_str)
-        projects_found = {e["project"] for e in entries}
-        buttons = [
-            [InlineKeyboardButton(EDIT_SALES_PROJECTS[p], callback_data=f"editsales_proj:{date_str}:{p}")]
-            for p in EDIT_SALES_PROJECTS if p in projects_found
-        ]
-        if not buttons:
-            await query.edit_message_text("Нет записей на эту дату.")
-            _reset_editsales()
-            return
-        _save_editsales({"step": "project", "temp": {"date": date_str}})
-        await query.edit_message_text(
-            f"📅 {date_str} — выбери проект:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-
-    elif data.startswith("editsales_proj:"):
+    if data.startswith("editsales_entry:"):
         _, date_str, proj_key = data.split(":", 2)
         from agents.sales_agent import get_entries_by_date
         entries = get_entries_by_date(date_str)
@@ -1635,14 +1625,12 @@ async def handle_editsales_callback(update: Update, context: ContextTypes.DEFAUL
         proj_name = EDIT_SALES_PROJECTS.get(proj_key, proj_key)
         current = ""
         if entry:
-            current = (
-                f"\nТекущие значения:\n"
-                f"  День: {int(entry.get('revenue', 0)):,} ₸\n"
-                f"  Месяц итого: {int(entry.get('month_total', 0)):,} ₸"
-            ).replace(",", " ")
-        _save_editsales({"step": "revenue", "temp": {"date": date_str, "project": proj_key}})
+            day = f"{int(entry.get('revenue', 0)):,}".replace(",", " ")
+            mon = f"{int(entry.get('month_total', 0)):,}".replace(",", " ")
+            current = f"\nСейчас: день {day} ₸ / месяц {mon} ₸"
+        _save_editsales({"active": True, "step": "revenue", "temp": {"date": date_str, "project": proj_key}})
         await query.edit_message_text(
-            f"✏️ {proj_name} за {date_str}{current}\n\n"
+            f"✏️ {proj_name} — {date_str}{current}\n\n"
             f"Новые продажи за день? (₸)"
         )
 
