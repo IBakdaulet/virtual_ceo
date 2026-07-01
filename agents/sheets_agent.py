@@ -288,6 +288,86 @@ def append_expense_month(month_label: str, categories: dict, total_expenses: flo
         print(f"[Sheets] append_expense_month error: {e}")
 
 
+def sync_finance_sheet() -> str:
+    """Пересчитывает лист «Финансы»: доходы из sales.json, расходы из листа «Расходы»."""
+    from collections import defaultdict
+    from datetime import datetime as _dt
+    from pathlib import Path
+
+    gc = _get_client()
+    if not gc:
+        raise RuntimeError("нет GOOGLE_CREDENTIALS")
+
+    sh = gc.open_by_key(SHEET_ID)
+    projects = [
+        ("grants_kz",      "Grants KZ"),
+        ("tanda_bilim",    "Tanda Bilim"),
+        ("ekonomist_media","Ekonomist Media"),
+    ]
+    proj_name_to_key = {name: key for key, name in projects}
+
+    # ── Доходы из sales.json ────────────────────────────────────────────────
+    sales_file = Path(__file__).parent.parent / "data" / "sales.json"
+    income: dict = defaultdict(lambda: defaultdict(float))
+    if sales_file.exists():
+        sales_data = json.loads(sales_file.read_text(encoding="utf-8"))
+        by_month_proj: dict = defaultdict(list)
+        for e in sales_data.get("entries", []):
+            d = e.get("date", "")
+            if d and e.get("project"):
+                by_month_proj[(d[:7], e["project"])].append(e)
+        for (ym, proj), entries in by_month_proj.items():
+            last = max(entries, key=lambda e: e.get("date", ""))
+            income[ym][proj] = last.get("month_total", 0)
+
+    # ── Расходы из листа «Расходы» ──────────────────────────────────────────
+    expenses: dict = defaultdict(lambda: defaultdict(float))
+    try:
+        ws_exp = _get_or_create_sheet(sh, "Расходы")
+        rows_exp = ws_exp.get_all_values()
+        for row in rows_exp[1:]:
+            if len(row) < 6:
+                continue
+            date_s, _, _, proj_name, _, amount_s = row[0], row[1], row[2], row[3], row[4], row[5]
+            if not date_s or not amount_s:
+                continue
+            try:
+                ym = _dt.strptime(date_s, "%d.%m.%Y").strftime("%Y-%m")
+                proj_key = proj_name_to_key.get(proj_name)
+                if proj_key:
+                    expenses[ym][proj_key] += float(str(amount_s).replace(" ", "").replace(",", "."))
+            except (ValueError, TypeError):
+                continue
+    except Exception:
+        pass
+
+    # ── Собираем все месяцы ─────────────────────────────────────────────────
+    all_months = sorted(set(income.keys()) | set(expenses.keys()))
+
+    # ── Строим таблицу ──────────────────────────────────────────────────────
+    header = ["Месяц"]
+    for _, pname in projects:
+        header += [f"{pname} доход", f"{pname} расход", f"{pname} прибыль"]
+
+    data_rows = [header]
+    for ym in all_months:
+        mon, year = ym[5:7], ym[:4]
+        label = f"{MONTH_NAMES.get(mon, mon)} {year}"
+        row = [label]
+        for pkey, _ in projects:
+            inc = income[ym].get(pkey, 0)
+            exp = expenses[ym].get(pkey, 0)
+            row += [inc, exp, inc - exp]
+        data_rows.append(row)
+
+    ws_fin = _get_or_create_sheet(sh, "Финансы")
+    ws_fin.clear()
+    if data_rows:
+        ws_fin.update("A1", data_rows, value_input_option="USER_ENTERED")
+
+    return f"✅ Лист «Финансы» обновлён: {len(all_months)} мес."
+
+
 def sync_historical_to_sheets():
     """Синхронизирует весь historical_sales.json в Google Sheets."""
     from pathlib import Path

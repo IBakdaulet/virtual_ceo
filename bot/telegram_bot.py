@@ -468,15 +468,21 @@ async def request_balances(context):
 
 
 async def daily_sheets_sync(context):
-    """23:55 — записывает актуальные балансы в Google Sheets независимо от ручных обновлений."""
+    """23:55 — записывает балансы и обновляет лист Финансы."""
     try:
         from agents.finance_agent import _load
-        from agents.sheets_agent import append_balance_row
+        from agents.sheets_agent import append_balance_row, sync_finance_sheet
         data = _load()
         append_balance_row(data.get("accounts", {}), data.get("usd_to_kzt_rate", 1))
         logger.info("Ежедневная запись балансов в Sheets выполнена")
     except Exception as e:
-        logger.error(f"daily_sheets_sync error: {e}")
+        logger.error(f"daily_sheets_sync balance error: {e}")
+    try:
+        from agents.sheets_agent import sync_finance_sheet
+        sync_finance_sheet()
+        logger.info("Ежедневное обновление листа Финансы выполнено")
+    except Exception as e:
+        logger.error(f"daily_sheets_sync finance error: {e}")
 
 
 async def reminder_balances(context):
@@ -764,6 +770,20 @@ async def cmd_syncsheets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         from agents.sheets_agent import sync_historical_to_sheets
         sync_historical_to_sheets()
         await update.message.reply_text("✅ Google Sheets обновлён — листы История 2025 и История 2026.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+async def cmd_finance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обновляет лист «Финансы» — доходы, расходы, прибыль по проектам."""
+    if not is_owner(update):
+        return
+    await update.message.reply_text("⏳ Собираю финансовые данные...")
+    try:
+        import asyncio
+        from agents.sheets_agent import sync_finance_sheet
+        result = await asyncio.to_thread(sync_finance_sheet)
+        await update.message.reply_text(result)
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
@@ -2628,6 +2648,7 @@ def main() -> None:
     app.add_handler(CommandHandler("bonus", cmd_kpi))
     app.add_handler(CommandHandler("plan", cmd_setkpi))
     app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
+    app.add_handler(CommandHandler("finance", cmd_finance))
     app.add_handler(CommandHandler("invoice", cmd_invoice))
     app.add_handler(CommandHandler("analyst", cmd_analyst))
     app.add_handler(CommandHandler("toword", cmd_toword))
