@@ -204,6 +204,10 @@ def update_entry(date_str: str, project: str, revenue: float, month_total: float
         "month_total": month_total,
     })
     _save(data)
+    try:
+        _push_sales_to_github()
+    except Exception as e:
+        print(f"[Sales] push after update_entry failed: {e}")
 
 
 def is_submitted_today() -> bool:
