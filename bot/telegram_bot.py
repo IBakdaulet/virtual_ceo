@@ -788,6 +788,35 @@ async def cmd_finance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+async def cmd_fixjune(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Разовая операция: меняет дату сегодняшних расходов на 30.06.2026."""
+    if not is_owner(update):
+        return
+    try:
+        import asyncio, json as _json
+        import gspread as _gs
+        SHEET_ID = "1aGY0-SIbVjFF4uqI8v6SaEmTp5WT2r9hnsjhaAlS9Qw"
+        TODAY = "02.07.2026"
+        TARGET = "30.06.2026"
+        def _fix():
+            creds = _json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+            gc = _gs.service_account_from_dict(creds)
+            ws = gc.open_by_key(SHEET_ID).worksheet("Расходы")
+            rows = ws.get_all_values()
+            fixed = 0
+            for i, row in enumerate(rows[1:], start=2):
+                if row and row[0] == TODAY:
+                    ws.update_cell(i, 1, TARGET)
+                    fixed += 1
+            return fixed
+        n = await asyncio.to_thread(_fix)
+        from agents.sheets_agent import sync_finance_sheet
+        await asyncio.to_thread(sync_finance_sheet)
+        await update.message.reply_text(f"✅ Исправлено {n} строк → 30.06.2026\n📊 Финансы пересчитаны")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def _extract_invoice_data(text: str) -> dict | None:
     """Claude извлекает данные счёта из свободного текста."""
     import anthropic as _ant, json as _json, re as _re
@@ -2667,6 +2696,7 @@ def main() -> None:
     app.add_handler(CommandHandler("plan", cmd_setkpi))
     app.add_handler(CommandHandler("syncsheets", cmd_syncsheets))
     app.add_handler(CommandHandler("finance", cmd_finance))
+    app.add_handler(CommandHandler("fixjune", cmd_fixjune))
     app.add_handler(CommandHandler("invoice", cmd_invoice))
     app.add_handler(CommandHandler("analyst", cmd_analyst))
     app.add_handler(CommandHandler("toword", cmd_toword))
