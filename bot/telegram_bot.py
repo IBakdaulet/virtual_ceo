@@ -1771,7 +1771,7 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         try:
             import asyncio
-            from agents.sheets_agent import append_expense_row
+            from agents.sheets_agent import append_expense_row, sync_finance_sheet
             await asyncio.to_thread(append_expense_row, project, description, amount, who)
             amount_str = f"{int(amount):,}".replace(",", " ")
             msg = (
@@ -1789,6 +1789,10 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
                     chat_id=OWNER_ID,
                     text=f"💸 Новый расход от {who}:\n📁 {project}\n📝 {description}\n💰 {amount_str} ₸"
                 )
+            try:
+                await asyncio.to_thread(sync_finance_sheet)
+            except Exception:
+                pass
         except Exception as e:
             await update.message.reply_text(f"⚠️ Ошибка записи в таблицу: {e}")
 
