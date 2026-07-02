@@ -1748,6 +1748,8 @@ async def _handle_editsales_text(update, user_text: str) -> None:
                 _get_rev("grants_kz"), _get_rev("tanda_bilim"),
                 _get_mon("grants_kz"), _get_mon("tanda_bilim")
             )
+            from agents.sheets_agent import sync_finance_sheet
+            await asyncio.to_thread(sync_finance_sheet)
             amount_day = f"{int(revenue):,}".replace(",", " ")
             amount_mon = f"{int(month_total):,}".replace(",", " ")
             await update.message.reply_text(
