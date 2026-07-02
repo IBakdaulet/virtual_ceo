@@ -51,8 +51,10 @@ def _ensure_header(ws: gspread.Worksheet, header: list):
         ws.update("A1", [header])
 
 
-def append_expense_row(project: str, description: str, amount: float, who: str) -> None:
-    """Добавляет строку расхода в лист «Расходы» таблицы продаж."""
+def append_expense_row(project: str, description: str, amount: float, who: str,
+                       expense_date: str | None = None) -> None:
+    """Добавляет строку расхода в лист «Расходы» таблицы продаж.
+    expense_date — дата в формате YYYY-MM-DD; если None — сегодня."""
     gc = _get_client()
     if not gc:
         raise RuntimeError("нет GOOGLE_CREDENTIALS")
@@ -62,8 +64,12 @@ def append_expense_row(project: str, description: str, amount: float, who: str) 
     header = ["Дата", "Время", "Кто", "Проект", "Описание", "Сумма (₸)"]
     _ensure_header(ws, header)
     now = datetime.now()
+    if expense_date:
+        date_fmt = datetime.strptime(expense_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+    else:
+        date_fmt = now.strftime("%d.%m.%Y")
     ws.append_row(
-        [now.strftime("%d.%m.%Y"), now.strftime("%H:%M"), who, project, description, amount],
+        [date_fmt, now.strftime("%H:%M"), who, project, description, amount],
         value_input_option="USER_ENTERED"
     )
 

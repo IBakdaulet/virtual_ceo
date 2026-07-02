@@ -1755,6 +1755,19 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Нажми кнопку выше чтобы выбрать проект 👆")
         return
 
+    if step == "date":
+        expense_date = _parse_editsales_date(user_text)
+        if not expense_date:
+            await update.message.reply_text(
+                "Не понял дату. Напиши например: 30 июня, вчера, сегодня, 24.06"
+            )
+            return
+        state["expense_date"] = expense_date
+        state["step"] = "description"
+        _save_expense_state(user_id, state)
+        await update.message.reply_text("📝 Что за расход? Опиши кратко.")
+        return
+
     if step == "description":
         state["description"] = user_text
         state["step"] = "amount"
@@ -1767,12 +1780,13 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
         amount = _parse_amount(user_text)
         project = state["project"]
         description = state["description"]
+        expense_date = state.get("expense_date")
         who = update.effective_user.full_name or "Неизвестно"
 
         try:
             import asyncio
             from agents.sheets_agent import append_expense_row, sync_finance_sheet
-            await asyncio.to_thread(append_expense_row, project, description, amount, who)
+            await asyncio.to_thread(append_expense_row, project, description, amount, who, expense_date)
             amount_str = f"{int(amount):,}".replace(",", " ")
             msg = (
                 f"✅ Расход записан:\n"
@@ -1822,9 +1836,9 @@ async def handle_expense_callback(update: Update, context: ContextTypes.DEFAULT_
     project_key = query.data.split(":", 1)[1]
     project_name = EXPENSE_PROJECTS.get(project_key, project_key)
 
-    _save_expense_state(user_id, {"step": "description", "project": project_name})
+    _save_expense_state(user_id, {"step": "date", "project": project_name})
     await query.edit_message_text(
-        f"📁 Проект: <b>{project_name}</b>\n\nЧто за расход? Опиши кратко.",
+        f"📁 Проект: <b>{project_name}</b>\n\nЗа какую дату? (например: 30 июня, вчера, сегодня)",
         parse_mode="HTML"
     )
 
