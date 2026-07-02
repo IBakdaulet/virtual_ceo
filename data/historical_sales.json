@@ -80,6 +80,11 @@
           "grants_kz": 2109000.0,
           "tanda_bilim": 0.0,
           "ekonomist_media": 0.0
+        },
+        "06": {
+          "grants_kz": 3100000.0,
+          "tanda_bilim": 5640000.0,
+          "ekonomist_media": 0.0
         }
       }
     }
