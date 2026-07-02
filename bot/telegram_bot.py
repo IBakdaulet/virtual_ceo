@@ -1771,6 +1771,12 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_text = update.message.text.strip()
     state = _load_expense_state(user_id)
 
+    # Отмена на любом шаге
+    if state and user_text.lower() in ["отмена", "стоп", "cancel", "отмени"]:
+        _clear_expense_state(user_id)
+        await update.message.reply_text("Отменено.")
+        return
+
     if not state:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(name, callback_data=f"expense_project:{key}")]
@@ -1783,7 +1789,10 @@ async def handle_expense_flow(update: Update, context: ContextTypes.DEFAULT_TYPE
     step = state.get("step")
 
     if step == "project":
-        await update.message.reply_text("Нажми кнопку выше чтобы выбрать проект 👆")
+        # Пишет текст вместо кнопки — сбрасываем и перенаправляем
+        _clear_expense_state(user_id)
+        if is_salesperson(update):
+            await handle_salesperson_message(update, context)
         return
 
     if step == "date":
