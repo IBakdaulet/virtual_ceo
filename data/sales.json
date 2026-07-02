@@ -90,6 +90,12 @@
       "date": "2026-06-24",
       "revenue": 0.0,
       "month_total": 1660000.0
+    },
+    {
+      "project": "grants_kz",
+      "date": "2026-06-30",
+      "revenue": 0.0,
+      "month_total": 3100000.0
     }
   ],
   "monthly_plans": {
@@ -155,7 +161,7 @@
     }
   },
   "daily_state": {
-    "submitted_today": true,
-    "submitted_date": "2026-06-24"
+    "submitted_today": false,
+    "submitted_date": null
   }
 }
