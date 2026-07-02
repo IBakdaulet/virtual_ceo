@@ -96,6 +96,12 @@
       "date": "2026-06-30",
       "revenue": 0.0,
       "month_total": 3100000.0
+    },
+    {
+      "project": "tanda_bilim",
+      "date": "2026-06-30",
+      "revenue": 0.0,
+      "month_total": 5640000.0
     }
   ],
   "monthly_plans": {
