@@ -1891,14 +1891,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await cmd_editsales(update, context)
         return
 
-    if is_salesperson(update):
-        await handle_salesperson_message(update, context)
-        return
-
-    # Расходы — доступны любому пользователю бота
+    # Расходы — до is_salesperson, иначе продажник до этого не доходит
     uid = update.effective_user.id
     if _load_expense_state(uid) or user_text.lower() in ["расход", "расходы", "трата", "трат"]:
         await handle_expense_flow(update, context)
+        return
+
+    if is_salesperson(update):
+        await handle_salesperson_message(update, context)
         return
 
     if not is_owner(update):
