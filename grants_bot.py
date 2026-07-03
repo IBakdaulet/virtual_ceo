@@ -37,10 +37,20 @@ TEXTS = {
         ),
         "ask_question": "Задай вопрос:",
         "partner_btn": "🎓 Хочу помощь с поступлением",
-        "collect_intro": (
-            "Отлично! Наши партнёры — специалисты по поступлению за рубеж — свяжутся "
-            "с тобой и помогут со всеми документами.\n\nКак тебя зовут?"
+        "trust_screen": (
+            "🎓 Наш специалист свяжется с тобой бесплатно и:\n\n"
+            "✅ Оценит твои шансы на грант\n"
+            "✅ Подберёт подходящие программы под твой профиль\n"
+            "✅ Объяснит какие документы нужны и с чего начать\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "Как это работает:\n\n"
+            "1️⃣ Оставляешь заявку (займёт 1 минуту)\n"
+            "2️⃣ Специалист свяжется в течение 24 часов\n"
+            "3️⃣ Бесплатная консультация по твоей ситуации\n"
+            "4️⃣ Вместе готовим документы и подаём заявку"
         ),
+        "trust_btn": "Оставить заявку →",
+        "collect_intro": "Отлично! Начнём.\n\nКак тебя зовут?",
         "ask_phone": "📱 Напиши свой номер телефона (WhatsApp):",
         "ask_country": "🌍 В какую страну хочешь поступить?",
         "ask_edu": "📚 Какой у тебя уровень образования сейчас?",
@@ -61,10 +71,20 @@ TEXTS = {
         ),
         "ask_question": "Сұрағыңызды жазыңыз:",
         "partner_btn": "🎓 Түсуге көмек алғым келеді",
-        "collect_intro": (
-            "Тамаша! Біздің серіктестеріміз — шетелге түсу мамандары — сізбен "
-            "байланысып, барлық құжаттарда көмектеседі.\n\nАтыңыз кім?"
+        "trust_screen": (
+            "🎓 Біздің маман сізбен тегін байланысып:\n\n"
+            "✅ Грантқа мүмкіндіктеріңізді бағалайды\n"
+            "✅ Профиліңізге сай бағдарламаларды таңдайды\n"
+            "✅ Қандай құжаттар керек екенін түсіндіреді\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "Қалай жұмыс істейді:\n\n"
+            "1️⃣ Өтінім қалдырасыз (1 минут)\n"
+            "2️⃣ Маман 24 сағат ішінде хабарласады\n"
+            "3️⃣ Жағдайыңыз бойынша тегін кеңес\n"
+            "4️⃣ Бірге құжаттарды дайындап, өтінім береміз"
         ),
+        "trust_btn": "Өтінім қалдыру →",
+        "collect_intro": "Тамаша! Бастайық.\n\nАтыңыз кім?",
         "ask_phone": "📱 Телефон нөміріңізді жазыңыз (WhatsApp):",
         "ask_country": "🌍 Қай елге түскіңіз келеді?",
         "ask_edu": "📚 Қазіргі білім деңгейіңіз қандай?",
@@ -243,6 +263,22 @@ async def handle_partner_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     lang = context.user_data.get("lang", "ru")
     t = TEXTS[lang]
+    await query.edit_message_reply_markup(reply_markup=None)
+    trust_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(t["trust_btn"], callback_data="action:start_lead")]
+    ])
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=t["trust_screen"],
+        reply_markup=trust_keyboard
+    )
+
+
+async def handle_start_lead_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    lang = context.user_data.get("lang", "ru")
+    t = TEXTS[lang]
     context.user_data["step"] = "collect_name"
     await query.edit_message_reply_markup(reply_markup=None)
     await context.bot.send_message(chat_id=query.message.chat_id, text=t["collect_intro"])
@@ -372,6 +408,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(handle_lang_callback, pattern="^lang:"))
     app.add_handler(CallbackQueryHandler(handle_partner_callback, pattern="^action:partner"))
+    app.add_handler(CallbackQueryHandler(handle_start_lead_callback, pattern="^action:start_lead"))
     app.add_handler(CallbackQueryHandler(handle_country_callback, pattern="^country:"))
     app.add_handler(CallbackQueryHandler(handle_edu_callback, pattern="^edu:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
