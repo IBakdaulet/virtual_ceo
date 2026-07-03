@@ -252,11 +252,12 @@ async def handle_country_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     lang = context.user_data.get("lang", "ru")
     t = TEXTS[lang]
-    context.user_data["country"] = query.data.replace("country:", "")
+    idx = int(query.data.replace("country:", ""))
+    context.user_data["country"] = t["country_options"][idx]
     context.user_data["step"] = "collect_edu"
     buttons = [
-        [InlineKeyboardButton(opt, callback_data=f"edu:{opt}")]
-        for opt in t["edu_options"]
+        [InlineKeyboardButton(opt, callback_data=f"edu:{i}")]
+        for i, opt in enumerate(t["edu_options"])
     ]
     await query.edit_message_text(t["ask_edu"], reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -266,7 +267,8 @@ async def handle_edu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     lang = context.user_data.get("lang", "ru")
     t = TEXTS[lang]
-    context.user_data["education"] = query.data.replace("edu:", "")
+    idx = int(query.data.replace("edu:", ""))
+    context.user_data["education"] = t["edu_options"][idx]
     context.user_data["step"] = "done"
 
     name = context.user_data.get("name", "")
@@ -333,8 +335,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data["phone"] = text
         context.user_data["step"] = "collect_country"
         buttons = [
-            [InlineKeyboardButton(opt, callback_data=f"country:{opt}")]
-            for opt in t["country_options"]
+            [InlineKeyboardButton(opt, callback_data=f"country:{i}")]
+            for i, opt in enumerate(t["country_options"])
         ]
         await update.message.reply_text(t["ask_country"], reply_markup=InlineKeyboardMarkup(buttons))
         return
