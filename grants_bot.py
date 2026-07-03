@@ -22,7 +22,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("GRANTS_BOT_TOKEN")
-PARTNER_SALES_ID = int(os.getenv("TELEGRAM_OWNER_ID", "0"))
+try:
+    PARTNER_SALES_ID = int(os.getenv("TELEGRAM_OWNER_ID", "0"))
+except (ValueError, TypeError):
+    PARTNER_SALES_ID = 0
 SHEET_ID = "1VJh2uN3tw14wXBVxduDXVE7lIgJWK3MMXg34IZd3JTY"
 
 # ─── Тексты ───────────────────────────────────────────────────────────────────
