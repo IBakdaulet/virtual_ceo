@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("GRANTS_BOT_TOKEN")
+PARTNER_SALES_ID = int(os.getenv("TELEGRAM_OWNER_ID", "0"))
 SHEET_ID = "1VJh2uN3tw14wXBVxduDXVE7lIgJWK3MMXg34IZd3JTY"
 
 # ─── Тексты ───────────────────────────────────────────────────────────────────
@@ -277,13 +278,28 @@ async def handle_edu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     education = context.user_data.get("education", "")
     first_q = context.user_data.get("first_question", "")
 
+    import asyncio
     try:
-        import asyncio
         await asyncio.to_thread(save_lead, name, phone, country, education, lang, first_q)
     except Exception as e:
         logger.error(f"[Grants] save_lead error: {e}")
 
     await query.edit_message_text(t["done"])
+
+    if PARTNER_SALES_ID:
+        notification = (
+            f"🎓 Новая заявка — Grants KZ\n\n"
+            f"👤 Имя: {name}\n"
+            f"📱 Телефон: {phone}\n"
+            f"🌍 Страна: {country}\n"
+            f"📚 Образование: {education}\n"
+            f"❓ Вопрос: {first_q or '—'}\n\n"
+            f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        try:
+            await context.bot.send_message(chat_id=PARTNER_SALES_ID, text=notification)
+        except Exception as e:
+            logger.error(f"[Grants] partner notify error: {e}")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
