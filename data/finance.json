@@ -44,7 +44,7 @@
     "freedom_invest": {
       "name": "Freedom Invest карта",
       "currency": "USD",
-      "balance": 348.0,
+      "balance": 1200.0,
       "type": "investment"
     },
     "freedom_card": {
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 455.3,
-  "last_updated": "2026-09-07T07:30:12.895253",
+  "last_updated": "2026-09-07T07:30:14.859339",
   "limits": {
     "daily": {},
     "weekly": {},
