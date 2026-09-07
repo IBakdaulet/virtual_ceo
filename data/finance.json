@@ -3,7 +3,7 @@
     "kaspi_card": {
       "name": "Kaspi карта",
       "currency": "KZT",
-      "balance": 250000.0,
+      "balance": 52000.0,
       "type": "card"
     },
     "kaspi_deposit_usd": {
@@ -83,7 +83,7 @@
     }
   },
   "usd_to_kzt_rate": 455.3,
-  "last_updated": "2026-09-07T03:00:00.036648",
+  "last_updated": "2026-09-07T07:30:04.053730",
   "limits": {
     "daily": {},
     "weekly": {},
